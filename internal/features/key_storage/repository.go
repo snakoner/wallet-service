@@ -1,0 +1,424 @@
+package key_storage
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+
+	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/constants"
+	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/infra/db"
+)
+
+const (
+	roleUniqueConstraint           = "wallet_roles_unique"
+	keyAddressUniqueConstraint     = "wallet_keys_network_address_unique"
+	keyExternalRefUniqueConstraint = "wallet_keys_role_external_ref_unique"
+)
+
+const roleColumns = `
+	r.id,
+	r.service,
+	r.purpose,
+	r.label,
+	r.network,
+	r.kind,
+	r.policy,
+	r.created_at`
+
+type Repository struct{}
+
+func NewRepository() *Repository {
+	return &Repository{}
+}
+
+func scanRole(row pgx.Row) (*Role, error) {
+	var role Role
+	err := row.Scan(
+		&role.ID,
+		&role.Service,
+		&role.Purpose,
+		&role.Label,
+		&role.Network,
+		&role.Kind,
+		&role.Policy,
+		&role.CreatedAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrRoleNotFound
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("select wallet role: %w", err)
+	}
+
+	return &role, nil
+}
+
+func (r *Repository) CreateRole(ctx context.Context, tx db.DBTX, role *Role) error {
+	_, err := tx.Exec(ctx, `
+		INSERT INTO wallet_roles (
+			id,
+			service,
+			purpose,
+			label,
+			network,
+			kind,
+			policy,
+			created_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+		role.ID,
+		role.Service,
+		role.Purpose,
+		role.Label,
+		role.Network,
+		role.Kind,
+		role.Policy,
+		role.CreatedAt,
+	)
+	if db.IsUniqueViolation(err, roleUniqueConstraint) {
+		return ErrRoleExists
+	}
+
+	if err != nil {
+		return fmt.Errorf("insert wallet role: %w", err)
+	}
+
+	return nil
+}
+
+func (r *Repository) GetRole(
+	ctx context.Context,
+	tx db.DBTX,
+	service, purpose, label string,
+	network constants.Network,
+) (*Role, error) {
+	return scanRole(tx.QueryRow(ctx, `
+		SELECT`+roleColumns+`
+		FROM wallet_roles r
+		WHERE r.service = $1 AND r.purpose = $2 AND r.label = $3 AND r.network = $4`,
+		service,
+		purpose,
+		label,
+		network,
+	))
+}
+
+func (r *Repository) GetRoleByID(ctx context.Context, tx db.DBTX, id uuid.UUID) (*Role, error) {
+	return scanRole(tx.QueryRow(ctx, `
+		SELECT`+roleColumns+`
+		FROM wallet_roles r
+		WHERE r.id = $1`,
+		id,
+	))
+}
+
+// ListRoles returns roles of service, all roles when service is empty.
+func (r *Repository) ListRoles(ctx context.Context, tx db.DBTX, service string) ([]Role, error) {
+	rows, err := tx.Query(ctx, `
+		SELECT`+roleColumns+`
+		FROM wallet_roles r
+		WHERE $1 = '' OR r.service = $1
+		ORDER BY r.service, r.purpose, r.label, r.network`,
+		service,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("select wallet roles: %w", err)
+	}
+	defer rows.Close()
+
+	roles := []Role{}
+	for rows.Next() {
+		role, err := scanRole(rows)
+		if err != nil {
+			return nil, err
+		}
+
+		roles = append(roles, *role)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate wallet roles: %w", err)
+	}
+
+	return roles, nil
+}
+
+func (r *Repository) UpdateRolePolicy(ctx context.Context, tx db.DBTX, id uuid.UUID, policy json.RawMessage) error {
+	tag, err := tx.Exec(ctx, `UPDATE wallet_roles SET policy = $2 WHERE id = $1`, id, policy)
+	if err != nil {
+		return fmt.Errorf("update wallet role policy: %w", err)
+	}
+
+	if tag.RowsAffected() == 0 {
+		return ErrRoleNotFound
+	}
+
+	return nil
+}
+
+// IsServiceAddress reports whether address is active, rotating or pending key of service; purpose "" - any purpose.
+func (r *Repository) IsServiceAddress(
+	ctx context.Context,
+	tx db.DBTX,
+	service string,
+	network constants.Network,
+	address, purpose string,
+) (bool, error) {
+	var exists bool
+	if err := tx.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM wallet_keys k
+			JOIN wallet_roles r ON r.id = k.role_id
+			WHERE r.service = $1
+				AND k.network = $2
+				AND k.address = $3
+				AND k.status IN ($4, $5, $6)
+				AND ($7 = '' OR r.purpose = $7)
+		)`,
+		service,
+		network,
+		address,
+		KeyStatusActive,
+		KeyStatusRotating,
+		KeyStatusPending,
+		purpose,
+	).Scan(&exists); err != nil {
+		return false, fmt.Errorf("select service address: %w", err)
+	}
+
+	return exists, nil
+}
+
+// GetRoleForUpdate locks role row, so keys of one role are created one by one.
+func (r *Repository) GetRoleForUpdate(ctx context.Context, tx db.DBTX, id uuid.UUID) (*Role, error) {
+	return scanRole(tx.QueryRow(ctx, `
+		SELECT`+roleColumns+`
+		FROM wallet_roles r
+		WHERE r.id = $1
+		FOR UPDATE`,
+		id,
+	))
+}
+
+func (r *Repository) HasActiveKey(ctx context.Context, tx db.DBTX, roleID uuid.UUID) (bool, error) {
+	var exists bool
+	if err := tx.QueryRow(ctx, `
+		SELECT EXISTS (SELECT 1 FROM wallet_keys WHERE role_id = $1 AND status = $2)`,
+		roleID,
+		KeyStatusActive,
+	).Scan(&exists); err != nil {
+		return false, fmt.Errorf("select active wallet key: %w", err)
+	}
+
+	return exists, nil
+}
+
+func (r *Repository) CreateKey(ctx context.Context, tx db.DBTX, key *WalletKey) error {
+	_, err := tx.Exec(ctx, `
+		INSERT INTO wallet_keys (
+			id,
+			role_id,
+			network,
+			alias,
+			address,
+			external_ref,
+			status,
+			key_cipher,
+			dek_cipher,
+			kek_version,
+			created_at,
+			updated_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+		key.ID,
+		key.RoleID,
+		key.Network,
+		key.Alias,
+		key.Address,
+		key.ExternalRef,
+		key.Status,
+		key.KeyCipher,
+		key.DEKCipher,
+		key.KEKVersion,
+		key.CreatedAt,
+		key.UpdatedAt,
+	)
+	if db.IsUniqueViolation(err, keyAddressUniqueConstraint) || db.IsUniqueViolation(err, keyExternalRefUniqueConstraint) {
+		return ErrKeyExists
+	}
+
+	if err != nil {
+		return fmt.Errorf("insert wallet key: %w", err)
+	}
+
+	return nil
+}
+
+// GetKey returns service key with ciphers and role.
+func (r *Repository) GetKey(ctx context.Context, tx db.DBTX, id uuid.UUID, service string) (*WalletKey, error) {
+	var key WalletKey
+	err := tx.QueryRow(ctx, `
+		SELECT
+			k.id,
+			k.role_id,
+			k.network,
+			k.alias,
+			k.address,
+			k.external_ref,
+			k.status,
+			k.key_cipher,
+			k.dek_cipher,
+			k.kek_version,
+			k.replaced_by,
+			k.created_at,
+			k.updated_at,
+			k.rotated_at,
+			k.revoked_at,`+roleColumns+`
+		FROM wallet_keys k
+		JOIN wallet_roles r ON r.id = k.role_id
+		WHERE k.id = $1 AND r.service = $2`,
+		id,
+		service,
+	).Scan(
+		&key.ID,
+		&key.RoleID,
+		&key.Network,
+		&key.Alias,
+		&key.Address,
+		&key.ExternalRef,
+		&key.Status,
+		&key.KeyCipher,
+		&key.DEKCipher,
+		&key.KEKVersion,
+		&key.ReplacedBy,
+		&key.CreatedAt,
+		&key.UpdatedAt,
+		&key.RotatedAt,
+		&key.RevokedAt,
+		&key.Role.ID,
+		&key.Role.Service,
+		&key.Role.Purpose,
+		&key.Role.Label,
+		&key.Role.Network,
+		&key.Role.Kind,
+		&key.Role.Policy,
+		&key.Role.CreatedAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrKeyNotFound
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("select wallet key: %w", err)
+	}
+
+	return &key, nil
+}
+
+// GetActiveKey returns active key of role without ciphers.
+func (r *Repository) GetActiveKey(ctx context.Context, tx db.DBTX, roleID uuid.UUID) (*WalletKey, error) {
+	var key WalletKey
+	err := tx.QueryRow(ctx, `
+		SELECT
+			id,
+			role_id,
+			network,
+			alias,
+			address,
+			external_ref,
+			status,
+			kek_version,
+			replaced_by,
+			created_at,
+			updated_at,
+			rotated_at,
+			revoked_at
+		FROM wallet_keys
+		WHERE role_id = $1 AND status = $2`,
+		roleID,
+		KeyStatusActive,
+	).Scan(
+		&key.ID,
+		&key.RoleID,
+		&key.Network,
+		&key.Alias,
+		&key.Address,
+		&key.ExternalRef,
+		&key.Status,
+		&key.KEKVersion,
+		&key.ReplacedBy,
+		&key.CreatedAt,
+		&key.UpdatedAt,
+		&key.RotatedAt,
+		&key.RevokedAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrKeyNotFound
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("select active wallet key: %w", err)
+	}
+
+	return &key, nil
+}
+
+// ListRoleKeys returns keys of role without ciphers.
+func (r *Repository) ListRoleKeys(ctx context.Context, tx db.DBTX, roleID uuid.UUID) ([]WalletKey, error) {
+	rows, err := tx.Query(ctx, `
+		SELECT
+			id,
+			role_id,
+			network,
+			alias,
+			address,
+			external_ref,
+			status,
+			kek_version,
+			replaced_by,
+			created_at,
+			updated_at,
+			rotated_at,
+			revoked_at
+		FROM wallet_keys
+		WHERE role_id = $1
+		ORDER BY created_at, id`,
+		roleID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("select wallet keys: %w", err)
+	}
+	defer rows.Close()
+
+	keys := []WalletKey{}
+	for rows.Next() {
+		var key WalletKey
+		if err := rows.Scan(
+			&key.ID,
+			&key.RoleID,
+			&key.Network,
+			&key.Alias,
+			&key.Address,
+			&key.ExternalRef,
+			&key.Status,
+			&key.KEKVersion,
+			&key.ReplacedBy,
+			&key.CreatedAt,
+			&key.UpdatedAt,
+			&key.RotatedAt,
+			&key.RevokedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan wallet key: %w", err)
+		}
+
+		keys = append(keys, key)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate wallet keys: %w", err)
+	}
+
+	return keys, nil
+}

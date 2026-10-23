@@ -1,0 +1,49 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    ports:
+      - "${DB_PORT}:5432"
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile.migrate
+    command: ["-dir", "/migrations", "postgres", "host=postgres port=5432 user=${DB_USER} password=${DB_PASSWORD} dbname=${DB_NAME} sslmode=${DB_SSL_MODE}", "up"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: on-failure
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    env_file:
+      - .env
+    ports:
+      - "${HTTP_PORT:-8080}:8080"
+    environment:
+      HTTP_PORT: 8080
+      DB_HOST: postgres
+      DB_PORT: 5432
+
+volumes:
+  postgres_data:

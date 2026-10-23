@@ -1,0 +1,412 @@
+definitions:
+  httputil.ErrorBody:
+    properties:
+      code:
+        type: string
+      fields:
+        additionalProperties:
+          type: string
+        type: object
+      message:
+        type: string
+    type: object
+  httputil.ErrorResponse:
+    properties:
+      error:
+        $ref: '#/definitions/httputil.ErrorBody'
+      success:
+        example: false
+        type: boolean
+    type: object
+  httputil.Response:
+    properties:
+      data: {}
+      error:
+        $ref: '#/definitions/httputil.ErrorBody'
+      success:
+        type: boolean
+    type: object
+  key_storage.CreateRoleKeyRequest:
+    properties:
+      alias:
+        type: string
+      external_ref:
+        description: only for deposit role
+        type: string
+    type: object
+  key_storage.CreateRoleRequest:
+    properties:
+      kind:
+        enum:
+        - single
+        - pool
+        - deposit
+        type: string
+      label:
+        type: string
+      network:
+        type: string
+      policy:
+        type: object
+      purpose:
+        type: string
+      service:
+        type: string
+    required:
+    - kind
+    - network
+    - purpose
+    - service
+    type: object
+  key_storage.KeyResponse:
+    properties:
+      address:
+        type: string
+      alias:
+        type: string
+      created_at:
+        type: string
+      id:
+        type: string
+      kind:
+        type: string
+      label:
+        type: string
+      network:
+        type: string
+      purpose:
+        type: string
+      service:
+        type: string
+      status:
+        type: string
+    type: object
+  key_storage.RoleResponse:
+    properties:
+      created_at:
+        type: string
+      id:
+        type: string
+      kind:
+        type: string
+      label:
+        type: string
+      network:
+        type: string
+      policy:
+        type: object
+      purpose:
+        type: string
+      service:
+        type: string
+    type: object
+  key_storage.UpdatePolicyRequest:
+    properties:
+      policy:
+        type: object
+    required:
+    - policy
+    type: object
+  signing.SignTransactionRequest:
+    properties:
+      network:
+        type: string
+      raw_tx:
+        description: 'hex of unsigned tx: ethereum - types.Transaction.MarshalBinary,
+          tron - raw_data_hex'
+        type: string
+    required:
+    - network
+    - raw_tx
+    type: object
+  signing.SignTransactionResponse:
+    properties:
+      signed_tx:
+        description: 'hex: ethereum - eth_sendRawTransaction, tron - /wallet/broadcasthex'
+        type: string
+      tx_hash:
+        type: string
+    type: object
+info:
+  contact: {}
+  description: Wallet key storage and transaction signing.
+  title: Wallet Service API
+  version: "1.0"
+paths:
+  /api/v1/admin/roles:
+    get:
+      parameters:
+      - description: Service name, all services when empty
+        in: query
+        name: service
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httputil.Response'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/key_storage.RoleResponse'
+                  type: array
+              type: object
+      summary: List wallet roles
+      tags:
+      - admin
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Role params
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/key_storage.CreateRoleRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httputil.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/key_storage.RoleResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httputil.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/httputil.ErrorResponse'
+      summary: Create wallet role of service
+      tags:
+      - admin
+  /api/v1/admin/roles/{id}/keys:
+    get:
+      parameters:
+      - description: Role id
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httputil.Response'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/key_storage.KeyResponse'
+                  type: array
+              type: object
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httputil.ErrorResponse'
+      summary: List keys of role
+      tags:
+      - admin
+    post:
+      consumes:
+      - application/json
+      description: Single role has one active key, deposit role key requires external_ref.
+      parameters:
+      - description: Role id
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Key params
+        in: body
+        name: request
+        schema:
+          $ref: '#/definitions/key_storage.CreateRoleKeyRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httputil.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/key_storage.KeyResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httputil.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httputil.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/httputil.ErrorResponse'
+      summary: Generate new key of role
+      tags:
+      - admin
+  /api/v1/admin/roles/{id}/policy:
+    put:
+      consumes:
+      - application/json
+      description: Applies to all keys of role. Format is described in docs/POLICY.md.
+        Empty rules deny signing.
+      parameters:
+      - description: Role id
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Policy
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/key_storage.UpdatePolicyRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httputil.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/key_storage.RoleResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httputil.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httputil.ErrorResponse'
+      summary: Replace signing policy of role
+      tags:
+      - admin
+  /api/v1/keys/{id}/sign-transaction:
+    post:
+      consumes:
+      - application/json
+      description: Signs unsigned tx with own key. Tx is built and sent by the caller.
+      parameters:
+      - description: Key id
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Unsigned tx
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/signing.SignTransactionRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httputil.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/signing.SignTransactionResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httputil.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httputil.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httputil.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httputil.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/httputil.ErrorResponse'
+      security:
+      - ServiceKey: []
+      summary: Sign transaction
+      tags:
+      - signing
+  /api/v1/roles/{purpose}/key:
+    get:
+      description: Returns current key of role, e.g. gas station. Key changes after
+        rotation, so do not store key id in config.
+      parameters:
+      - description: Role purpose, e.g. gas_station
+        in: path
+        name: purpose
+        required: true
+        type: string
+      - description: Purpose refinement, e.g. atoken, usdt_high_risk
+        in: query
+        name: label
+        type: string
+      - description: 'Network: ethereum, tron, arbitrum'
+        in: query
+        name: network
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httputil.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/key_storage.KeyResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httputil.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httputil.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httputil.ErrorResponse'
+      security:
+      - ServiceKey: []
+      summary: Get active key of own single role
+      tags:
+      - keys
+securityDefinitions:
+  ServiceKey:
+    in: header
+    name: X-Service-Key
+    type: apiKey
+swagger: "2.0"
