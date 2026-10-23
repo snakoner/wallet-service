@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"text/tabwriter"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -20,12 +21,49 @@ import (
 	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/infra/logger"
 )
 
-const usage = `usage:
-  admin create-service-client -service <name>   register service and print its X-Service-Key
-  admin create-role -service <name> -purpose <purpose> [-label <label>] -network <ethereum|tron|arbitrum> -kind <single|pool|deposit> [-policy <file.json>]
-  admin set-policy -role <role_id> -policy <file.json>   replace signing policy of role
-  admin create-key -role <role_id> [-alias <name>] [-external-ref <ref>]   generate new key of role
-  admin import-key -role <role_id> [-alias <name>] [-external-ref <ref>]   import private key hex from stdin
+const usage = `wallet-admin - manage services, roles and keys of wallet service
+
+Usage:
+  wallet-admin <command> [flags]
+
+Services:
+  create-service-client   register service, print its X-Service-Key once
+      -service <name>         service name, e.g. exchange
+
+Roles:
+  create-role             create wallet role of service
+      -service <name>         service name, e.g. exchange
+      -purpose <purpose>      e.g. gas_station, executor, deposit
+      -label <label>          optional purpose refinement, e.g. atoken
+      -network <network>      ethereum | tron | arbitrum
+      -kind <kind>            single | pool | deposit
+      -policy <file.json>     optional signing policy, empty denies signing
+
+  list-roles              list roles with their policies
+      -service <name>         optional, all services when empty
+
+  set-policy              replace signing policy of role, applies to all its keys
+      -role <role_id>
+      -policy <file.json>
+
+Keys:
+  create-key              generate new key of role, print its address
+      -role <role_id>
+      -alias <name>           optional human-readable name
+      -external-ref <ref>     order id, required only for deposit role
+
+  import-key              import existing private key (hex) read from stdin
+      -role <role_id>
+      -alias <name>
+      -external-ref <ref>
+
+Examples:
+  wallet-admin create-service-client -service exchange
+  wallet-admin create-role -service exchange -purpose gas_station -network ethereum -kind single -policy /policies/atoken-gas-station-ethereum.json
+  wallet-admin list-roles -service exchange
+  wallet-admin set-policy -role <role_id> -policy /policies/atoken-executor-ethereum.json
+  wallet-admin create-key -role <role_id>
+  wallet-admin import-key -role <role_id>    then paste key and press Enter
 `
 
 func main() {
@@ -35,10 +73,14 @@ func main() {
 	}
 
 	switch os.Args[1] {
+	case "help", "-h", "--help":
+		fmt.Print(usage)
 	case "create-service-client":
 		createServiceClient(os.Args[2:])
 	case "create-role":
 		createRole(os.Args[2:])
+	case "list-roles":
+		listRoles(os.Args[2:])
 	case "set-policy":
 		setPolicy(os.Args[2:])
 	case "create-key":
@@ -152,6 +194,28 @@ func createRole(args []string) {
 
 	fmt.Printf("role_id:  %s\n", role.ID)
 	fmt.Printf("role:     %s/%s/%s/%s (%s)\n", role.Service, role.Purpose, role.Label, role.Network, role.Kind)
+}
+
+func listRoles(args []string) {
+	fs := flag.NewFlagSet("list-roles", flag.ExitOnError)
+	service := fs.String("service", "", "service name, all services when empty")
+	_ = fs.Parse(args)
+
+	ctx := context.Background()
+	a := newAdmin(ctx)
+	defer a.pool.Close()
+
+	roles, err := a.keyStorage().ListRoles(ctx, *service)
+	if err != nil {
+		a.log.Fatal().Err(err).Msg("failed to list roles")
+	}
+
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(w, "ROLE_ID\tSERVICE\tPURPOSE\tLABEL\tNETWORK\tKIND\tPOLICY")
+	for _, role := range roles {
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", role.ID, role.Service, role.Purpose, role.Label, role.Network, role.Kind, role.Policy)
+	}
+	_ = w.Flush()
 }
 
 func setPolicy(args []string) {

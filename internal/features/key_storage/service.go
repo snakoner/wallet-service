@@ -292,6 +292,29 @@ func (s *Service) addKey(
 	return key, nil
 }
 
+// GetRoleKeys returns all keys of own single or pool role, e.g. executors. Deposit keys are looked up by external_ref.
+func (s *Service) GetRoleKeys(ctx context.Context, params GetRoleKeyParams) ([]WalletKey, error) {
+	role, err := s.repo.GetRole(ctx, s.txm.GetPool(), params.Service, params.Purpose, params.Label, params.Network)
+	if err != nil {
+		return nil, err
+	}
+
+	if role.Kind == RoleKindDeposit {
+		return nil, ErrInvalidParams.WithMessage("deposit role keys are not listed")
+	}
+
+	keys, err := s.repo.ListRoleKeys(ctx, s.txm.GetPool(), role.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	for i := range keys {
+		keys[i].Role = *role
+	}
+
+	return keys, nil
+}
+
 // GetRoleKey returns active key of single role, e.g. gas station of service.
 func (s *Service) GetRoleKey(ctx context.Context, params GetRoleKeyParams) (*WalletKey, error) {
 	role, err := s.repo.GetRole(ctx, s.txm.GetPool(), params.Service, params.Purpose, params.Label, params.Network)

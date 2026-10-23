@@ -7,6 +7,6 @@ import (
 
 type Handlers struct {
 	KeyStorage *keystorage.Handler
-	Admin      *keystorage.AdminHandler
 	Signing    *signing.Handler
+	Admin      *keystorage.AdminHandler
 }

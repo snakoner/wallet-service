@@ -450,6 +450,86 @@
                     }
                 }
             }
+        },
+        "/api/v1/roles/{purpose}/keys": {
+            "get": {
+                "security": [
+                    {
+                        "ServiceKey": []
+                    }
+                ],
+                "description": "Returns all keys of single or pool role with statuses, e.g. executors. Sign only with active keys, rotating keys finish sent txs.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "keys"
+                ],
+                "summary": "List keys of own role",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Role purpose, e.g. executor",
+                        "name": "purpose",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Purpose refinement",
+                        "name": "label",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Network: ethereum, tron, arbitrum",
+                        "name": "network",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/httputil.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "$ref": "#/definitions/key_storage.KeyResponse"
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httputil.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httputil.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httputil.ErrorResponse"
+                        }
+                    }
+                }
+            }
         }
     },
     "definitions": {

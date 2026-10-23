@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "rules": [
+    {
+      "op": "contract_call",
+      "contracts": ["0x33c264dc5e849172C5C87E598B17F8683d1D5b5C"],
+      "methods": ["transferScaled(address,uint256)"],
+      "value": "zero"
+    },
+    {
+      "op": "token",
+      "contracts": [""],
+      "to": ["*"]
+    }
+  ]
+}

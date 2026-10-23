@@ -404,6 +404,56 @@ paths:
       summary: Get active key of own single role
       tags:
       - keys
+  /api/v1/roles/{purpose}/keys:
+    get:
+      description: Returns all keys of single or pool role with statuses, e.g. executors.
+        Sign only with active keys, rotating keys finish sent txs.
+      parameters:
+      - description: Role purpose, e.g. executor
+        in: path
+        name: purpose
+        required: true
+        type: string
+      - description: Purpose refinement
+        in: query
+        name: label
+        type: string
+      - description: 'Network: ethereum, tron, arbitrum'
+        in: query
+        name: network
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httputil.Response'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/key_storage.KeyResponse'
+                  type: array
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httputil.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httputil.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httputil.ErrorResponse'
+      security:
+      - ServiceKey: []
+      summary: List keys of own role
+      tags:
+      - keys
 securityDefinitions:
   ServiceKey:
     in: header

@@ -58,6 +58,26 @@ curl -s "http://localhost:8080/api/v1/roles/gas_station/key?label=atoken&network
 
 `key_id` меняется после ротации — не сохраняйте его в конфиге, получайте этой ручкой.
 
+### `GET /api/v1/roles/{purpose}/keys` — все ключи своей роли
+
+Авторизация: `X-Service-Key`. Для `single` и `pool` ролей, например список executor'ов. Параметры те же, что у `/key`: `purpose` (path), `network` (обязателен), `label`.
+
+```bash
+curl -s "http://localhost:8080/api/v1/roles/executor/keys?network=ethereum" \
+  -H "X-Service-Key: $SERVICE_KEY"
+```
+
+```json
+{"success":true,"data":[
+  {"id":"…","service":"exchange","purpose":"executor","label":"","network":"ethereum","kind":"pool","address":"0x…","status":"active","created_at":"…"},
+  {"id":"…","service":"exchange","purpose":"executor","label":"","network":"ethereum","kind":"pool","address":"0x…","status":"rotating","created_at":"…"}
+]}
+```
+
+Возвращаются ключи во всех статусах. Новые транзакции собирайте с `active`; `rotating` только дописывают уже начатое.
+
+Ошибки: `ROLE_NOT_FOUND` (404), `INVALID_PARAMS` (400, deposit-роль: её ключи по списку не отдаются), `VALIDATION_FAILED` (400), `UNAUTHORIZED` (401).
+
 ### `POST /api/v1/keys/{id}/sign-transaction` — подписать транзакцию
 
 Авторизация: `X-Service-Key`. **Сейчас в роутере `serviceAuth` на группе `/keys` закомментирован, поэтому ручка всегда отвечает 401.**
@@ -126,9 +146,12 @@ curl -s "http://localhost:8080/api/v1/roles/gas_station/key?label=atoken&network
 
 ## Admin CLI (`wallet-admin`)
 
+Полная справка: `wallet-admin help`.
+
 ```bash
 wallet-admin create-service-client -service exchange
 wallet-admin create-role -service exchange -purpose gas_station -label atoken -network tron -kind single [-policy policy.json]
+wallet-admin list-roles [-service exchange]
 wallet-admin set-policy -role <role_id> -policy policy.json
 wallet-admin create-key -role <role_id> [-alias name] [-external-ref order-1]
 echo "<private key hex>" | wallet-admin import-key -role <role_id> [-alias name] [-external-ref order-1]

@@ -1,0 +1,4 @@
+.DS_Store
+.env
+wallet-service
+wallet-admin

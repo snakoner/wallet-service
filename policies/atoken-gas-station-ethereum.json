@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "rules": [
+    {
+      "op": "native",
+      "to": ["internal:deposit"]
+    }
+  ]
+}

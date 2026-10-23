@@ -551,3 +551,36 @@ func TestIsServiceAddress(t *testing.T) {
 		t.Fatal("revoked key must not be internal")
 	}
 }
+
+func TestGetRoleKeys(t *testing.T) {
+	srv := newTestService(t, &repoStub{})
+	ctx := context.Background()
+
+	pool := createTestRole(t, srv, constants.NetworkEthereum, RoleKindPool)
+	for range 3 {
+		if _, err := srv.CreateKey(ctx, CreateKeyParams{RoleID: pool.ID}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	params := GetRoleKeyParams{Service: "exchange", Purpose: "gas_station", Label: "pool", Network: constants.NetworkEthereum}
+	keys, err := srv.GetRoleKeys(ctx, params)
+	if err != nil || len(keys) != 3 || keys[0].Role.Kind != RoleKindPool || keys[0].Role.Service != "exchange" {
+		t.Fatalf("keys = %+v, err = %v", keys, err)
+	}
+
+	single := createTestRole(t, srv, constants.NetworkEthereum, RoleKindSingle)
+	if keys, err := srv.GetRoleKeys(ctx, GetRoleKeyParams{Service: "exchange", Purpose: "gas_station", Label: "single", Network: constants.NetworkEthereum}); err != nil || len(keys) != 0 {
+		t.Fatalf("single role %s without keys: keys = %v, err = %v", single.ID, keys, err)
+	}
+
+	createTestRole(t, srv, constants.NetworkEthereum, RoleKindDeposit)
+	if _, err := srv.GetRoleKeys(ctx, GetRoleKeyParams{Service: "exchange", Purpose: "gas_station", Label: "deposit", Network: constants.NetworkEthereum}); !errors.Is(err, ErrInvalidParams) {
+		t.Fatalf("deposit role: err = %v", err)
+	}
+
+	params.Service = "banknote"
+	if _, err := srv.GetRoleKeys(ctx, params); !errors.Is(err, ErrRoleNotFound) {
+		t.Fatalf("other service: err = %v", err)
+	}
+}

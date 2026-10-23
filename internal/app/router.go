@@ -50,11 +50,12 @@ func NewRouter(
 		roles := api.Group("/roles", serviceAuth.Handle())
 		{
 			roles.GET("/:purpose/key", handlers.KeyStorage.GetRoleKey)
+			roles.GET("/:purpose/keys", handlers.KeyStorage.GetRoleKeys)
 		}
 
 		keys := api.Group(
 			"/keys",
-		/*	serviceAuth.Handle(),*/
+			serviceAuth.Handle(),
 		)
 		{
 			keys.POST("/:id/sign-transaction", handlers.Signing.SignTransaction)

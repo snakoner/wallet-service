@@ -39,6 +39,18 @@ func (s *serviceStub) GetRoleKey(_ context.Context, params GetRoleKeyParams) (*W
 	}, nil
 }
 
+func (s *serviceStub) GetRoleKeys(_ context.Context, params GetRoleKeyParams) ([]WalletKey, error) {
+	s.params = params
+	if s.err != nil {
+		return nil, s.err
+	}
+	role := Role{Service: params.Service, Purpose: params.Purpose, Kind: RoleKindPool}
+	return []WalletKey{
+		{ID: uuid.New(), Role: role, Network: params.Network, Address: "0xA", Status: KeyStatusActive, KeyCipher: []byte("secret")},
+		{ID: uuid.New(), Role: role, Network: params.Network, Address: "0xB", Status: KeyStatusRotating, KeyCipher: []byte("secret")},
+	}, nil
+}
+
 func doGetRoleKey(t *testing.T, svc *serviceStub, service, path string) *httptest.ResponseRecorder {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
@@ -53,6 +65,7 @@ func doGetRoleKey(t *testing.T, svc *serviceStub, service, path string) *httptes
 		c.Next()
 	}
 	r.GET("/api/v1/roles/:purpose/key", setService, NewHandler(svc, logger.New(logger.Config{Level: "error"})).GetRoleKey)
+	r.GET("/api/v1/roles/:purpose/keys", setService, NewHandler(svc, logger.New(logger.Config{Level: "error"})).GetRoleKeys)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, path, nil))
 	return w
@@ -96,6 +109,44 @@ func TestHandlerGetRoleKeyErrors(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			if w := doGetRoleKey(t, &serviceStub{err: tc.err}, tc.service, tc.path); w.Code != tc.want {
+				t.Fatalf("code = %d, want %d, body = %s", w.Code, tc.want, w.Body)
+			}
+		})
+	}
+}
+
+func TestHandlerGetRoleKeys(t *testing.T) {
+	svc := &serviceStub{}
+	w := doGetRoleKey(t, svc, "exchange", "/api/v1/roles/executor/keys?network=ethereum")
+	if w.Code != http.StatusOK {
+		t.Fatalf("code = %d, body = %s", w.Code, w.Body)
+	}
+	if p := svc.params; p.Service != "exchange" || p.Purpose != "executor" || p.Label != "" || p.Network != constants.NetworkEthereum {
+		t.Fatalf("params = %+v", p)
+	}
+	var resp struct {
+		Data []map[string]any `json:"data"`
+	}
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if len(resp.Data) != 2 || resp.Data[0]["address"] != "0xA" || resp.Data[1]["status"] != "rotating" || resp.Data[0]["kind"] != "pool" {
+		t.Fatalf("data = %v", resp.Data)
+	}
+	if strings.Contains(w.Body.String(), "cipher") || strings.Contains(w.Body.String(), "secret") {
+		t.Fatal("response must not contain ciphers")
+	}
+
+	for name, tc := range map[string]struct {
+		service, path string
+		err           error
+		want          int
+	}{
+		"no service":     {"", "/api/v1/roles/executor/keys?network=ethereum", nil, http.StatusUnauthorized},
+		"no network":     {"x", "/api/v1/roles/executor/keys", nil, http.StatusBadRequest},
+		"role not found": {"x", "/api/v1/roles/executor/keys?network=ethereum", ErrRoleNotFound, http.StatusNotFound},
+		"deposit role":   {"x", "/api/v1/roles/deposit/keys?network=ethereum", ErrInvalidParams, http.StatusBadRequest},
+	} {
+		t.Run(name, func(t *testing.T) {
 			if w := doGetRoleKey(t, &serviceStub{err: tc.err}, tc.service, tc.path); w.Code != tc.want {
 				t.Fatalf("code = %d, want %d, body = %s", w.Code, tc.want, w.Body)
 			}
