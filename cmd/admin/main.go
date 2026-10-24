@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"text/tabwriter"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -52,6 +53,15 @@ Keys:
       -alias <name>           optional human-readable name
       -external-ref <ref>     order id, required only for deposit role
 
+  list-keys               list keys of all services, newest first, filters apply only if flag is set
+      -service <name>
+      -purpose <purpose>
+      -label <label>          '' is a valid label
+      -network <network>      ethereum | tron | arbitrum
+      -status <status>        active | rotating | pending | disabled | revoked
+      -external-ref <ref>
+      -limit <n>              default 100, max 1000
+
   import-key              import existing private key (hex) read from stdin
       -role <role_id>
       -alias <name>
@@ -63,6 +73,7 @@ Examples:
   wallet-admin list-roles -service exchange
   wallet-admin set-policy -role <role_id> -policy /policies/atoken-executor-ethereum.json
   wallet-admin create-key -role <role_id>
+  wallet-admin list-keys -service exchange -purpose executor -network ethereum -status active
   wallet-admin import-key -role <role_id>    then paste key and press Enter
 `
 
@@ -83,6 +94,8 @@ func main() {
 		listRoles(os.Args[2:])
 	case "set-policy":
 		setPolicy(os.Args[2:])
+	case "list-keys":
+		listKeys(os.Args[2:])
 	case "create-key":
 		createKey(os.Args[2:], false)
 	case "import-key":
@@ -245,6 +258,72 @@ func setPolicy(args []string) {
 
 	fmt.Printf("role_id:  %s\n", role.ID)
 	fmt.Printf("policy:   %s\n", role.Policy)
+}
+
+func listKeys(args []string) {
+	fs := flag.NewFlagSet("list-keys", flag.ExitOnError)
+	service := fs.String("service", "", "service name")
+	purpose := fs.String("purpose", "", "role purpose")
+	label := fs.String("label", "", "purpose refinement")
+	networkName := fs.String("network", "", "ethereum, tron, arbitrum")
+	statusName := fs.String("status", "", "active, rotating, pending, disabled, revoked")
+	externalRef := fs.String("external-ref", "", "order id of deposit key")
+	limit := fs.Int("limit", 100, "max keys, up to 1000")
+	_ = fs.Parse(args)
+
+	ctx := context.Background()
+	a := newAdmin(ctx)
+	defer a.pool.Close()
+
+	// filter only by flags that are set: '' is a valid label
+	filter := keystorage.ListKeysFilter{Limit: *limit}
+	fs.Visit(func(f *flag.Flag) {
+		switch f.Name {
+		case "service":
+			filter.Service = service
+		case "purpose":
+			filter.Purpose = purpose
+		case "label":
+			filter.Label = label
+		case "external-ref":
+			filter.ExternalRef = externalRef
+		}
+	})
+
+	if *networkName != "" {
+		network, ok := constants.ParseNetwork(*networkName)
+		if !ok {
+			a.log.Fatal().Str("network", *networkName).Msg("unsupported network")
+		}
+		filter.Network = &network
+	}
+
+	if *statusName != "" {
+		status, ok := keystorage.ParseKeyStatus(*statusName)
+		if !ok {
+			a.log.Fatal().Str("status", *statusName).Msg("unsupported status")
+		}
+		filter.Status = &status
+	}
+
+	keys, err := a.keyStorage().ListKeys(ctx, filter)
+	if err != nil {
+		a.log.Fatal().Err(err).Msg("failed to list keys")
+	}
+
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(w, "KEY_ID\tSERVICE\tPURPOSE\tLABEL\tNETWORK\tKIND\tADDRESS\tSTATUS\tEXTERNAL_REF\tCREATED_AT")
+	for _, key := range keys {
+		externalRef := ""
+		if key.ExternalRef != nil {
+			externalRef = *key.ExternalRef
+		}
+
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			key.ID, key.Role.Service, key.Role.Purpose, key.Role.Label, key.Network, key.Role.Kind,
+			key.Address, key.Status, externalRef, key.CreatedAt.Format(time.DateTime))
+	}
+	_ = w.Flush()
 }
 
 func createKey(args []string, imported bool) {

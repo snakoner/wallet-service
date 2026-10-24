@@ -19,8 +19,9 @@ import (
 
 // repoStub keeps roles and keys in memory and checks the same unique constraints as db.
 type repoStub struct {
-	roles []*Role
-	keys  []*WalletKey
+	roles      []*Role
+	keys       []*WalletKey
+	listFilter ListKeysFilter
 }
 
 func (r *repoStub) CreateRole(_ context.Context, _ db.DBTX, role *Role) error {
@@ -84,6 +85,21 @@ func (r *repoStub) IsServiceAddress(_ context.Context, _ db.DBTX, service string
 		}
 	}
 	return false, nil
+}
+
+func (r *repoStub) ListKeys(_ context.Context, _ db.DBTX, filter ListKeysFilter) ([]WalletKey, error) {
+	r.listFilter = filter
+	keys := []WalletKey{}
+	for _, key := range r.keys {
+		if (filter.Service == nil || key.Role.Service == *filter.Service) &&
+			(filter.Purpose == nil || key.Role.Purpose == *filter.Purpose) &&
+			(filter.Label == nil || key.Role.Label == *filter.Label) &&
+			(filter.Network == nil || key.Network == *filter.Network) &&
+			(filter.Status == nil || key.Status == *filter.Status) {
+			keys = append(keys, *key)
+		}
+	}
+	return keys, nil
 }
 
 func (r *repoStub) GetRoleForUpdate(_ context.Context, _ db.DBTX, id uuid.UUID) (*Role, error) {
@@ -582,5 +598,33 @@ func TestGetRoleKeys(t *testing.T) {
 	params.Service = "banknote"
 	if _, err := srv.GetRoleKeys(ctx, params); !errors.Is(err, ErrRoleNotFound) {
 		t.Fatalf("other service: err = %v", err)
+	}
+}
+
+func TestListKeys(t *testing.T) {
+	repo := &repoStub{}
+	srv := newTestService(t, repo)
+	ctx := context.Background()
+
+	single := createTestRole(t, srv, constants.NetworkEthereum, RoleKindSingle)
+	pool := createTestRole(t, srv, constants.NetworkTron, RoleKindPool)
+	for _, roleID := range []uuid.UUID{single.ID, pool.ID, pool.ID} {
+		if _, err := srv.CreateKey(ctx, CreateKeyParams{RoleID: roleID}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if keys, err := srv.ListKeys(ctx, ListKeysFilter{}); err != nil || len(keys) != 3 || repo.listFilter.Limit != 100 {
+		t.Fatalf("all: keys = %d, limit = %d, err = %v", len(keys), repo.listFilter.Limit, err)
+	}
+
+	tron := constants.NetworkTron
+	if keys, _ := srv.ListKeys(ctx, ListKeysFilter{Network: &tron, Limit: 5000}); len(keys) != 2 || repo.listFilter.Limit != 1000 {
+		t.Fatalf("tron: keys = %d, limit = %d", len(keys), repo.listFilter.Limit)
+	}
+
+	label := "single"
+	if keys, _ := srv.ListKeys(ctx, ListKeysFilter{Service: ptr("exchange"), Label: &label}); len(keys) != 1 || keys[0].Role.Kind != RoleKindSingle {
+		t.Fatalf("label: keys = %+v", keys)
 	}
 }

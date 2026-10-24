@@ -44,6 +44,7 @@ func NewRouter(
 				admin.PUT("/roles/:id/policy", handlers.Admin.UpdatePolicy)
 				admin.POST("/roles/:id/keys", handlers.Admin.CreateKey)
 				admin.GET("/roles/:id/keys", handlers.Admin.ListRoleKeys)
+				admin.GET("/keys", handlers.Admin.ListKeys)
 			}
 		}
 

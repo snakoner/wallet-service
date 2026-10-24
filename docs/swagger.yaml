@@ -133,6 +133,60 @@ info:
   title: Wallet Service API
   version: "1.0"
 paths:
+  /api/v1/admin/keys:
+    get:
+      description: Newest first, every filter applies only if parameter is present,
+        so ?label= selects keys with empty label.
+      parameters:
+      - description: Service name
+        in: query
+        name: service
+        type: string
+      - description: Role purpose
+        in: query
+        name: purpose
+        type: string
+      - description: Purpose refinement
+        in: query
+        name: label
+        type: string
+      - description: 'Network: ethereum, tron, arbitrum'
+        in: query
+        name: network
+        type: string
+      - description: 'Status: active, rotating, pending, disabled, revoked'
+        in: query
+        name: status
+        type: string
+      - description: Order id of deposit key
+        in: query
+        name: external_ref
+        type: string
+      - description: Max keys, default 100, max 1000
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httputil.Response'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/key_storage.KeyResponse'
+                  type: array
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httputil.ErrorResponse'
+      summary: List keys of all services
+      tags:
+      - admin
   /api/v1/admin/roles:
     get:
       parameters:

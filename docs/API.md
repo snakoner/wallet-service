@@ -144,6 +144,24 @@ curl -s "http://localhost:8080/api/v1/roles/executor/keys?network=ethereum" \
 
 Адреса и статусы, без шифротекстов.
 
+### `GET /api/v1/admin/keys` — ключи всех сервисов с фильтрами
+
+Все параметры необязательные. Фильтр применяется, только если параметр передан: `?label=` — ключи с пустым label. Ключи от новых к старым, без шифротекстов.
+
+| Параметр | |
+|---|---|
+| `service`, `purpose`, `label` | точное совпадение |
+| `network` | `ethereum` / `tron` / `arbitrum` |
+| `status` | `active` / `rotating` / `pending` / `disabled` / `revoked` |
+| `external_ref` | id заказа deposit-ключа |
+| `limit` | по умолчанию 100, максимум 1000 |
+
+```bash
+curl -s "http://localhost:8080/api/v1/admin/keys?service=exchange&purpose=executor&network=ethereum&status=active"
+```
+
+Ошибки: `VALIDATION_FAILED` (400, неизвестные network/status, limit вне 1..1000).
+
 ## Admin CLI (`wallet-admin`)
 
 Полная справка: `wallet-admin help`.
@@ -152,6 +170,7 @@ curl -s "http://localhost:8080/api/v1/roles/executor/keys?network=ethereum" \
 wallet-admin create-service-client -service exchange
 wallet-admin create-role -service exchange -purpose gas_station -label atoken -network tron -kind single [-policy policy.json]
 wallet-admin list-roles [-service exchange]
+wallet-admin list-keys [-service exchange] [-purpose executor] [-label ""] [-network ethereum] [-status active] [-external-ref order-1] [-limit 100]
 wallet-admin set-policy -role <role_id> -policy policy.json
 wallet-admin create-key -role <role_id> [-alias name] [-external-ref order-1]
 echo "<private key hex>" | wallet-admin import-key -role <role_id> [-alias name] [-external-ref order-1]

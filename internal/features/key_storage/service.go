@@ -33,6 +33,7 @@ type repository interface {
 	GetKey(ctx context.Context, tx db.DBTX, id uuid.UUID, service string) (*WalletKey, error)
 	GetActiveKey(ctx context.Context, tx db.DBTX, roleID uuid.UUID) (*WalletKey, error)
 	ListRoleKeys(ctx context.Context, tx db.DBTX, roleID uuid.UUID) ([]WalletKey, error)
+	ListKeys(ctx context.Context, tx db.DBTX, filter ListKeysFilter) ([]WalletKey, error)
 	UpdateRolePolicy(ctx context.Context, tx db.DBTX, id uuid.UUID, policy json.RawMessage) error
 	IsServiceAddress(ctx context.Context, tx db.DBTX, service string, network constants.Network, address, purpose string) (bool, error)
 }
@@ -179,6 +180,21 @@ func (s *Service) UpdatePolicy(ctx context.Context, roleID uuid.UUID, raw json.R
 // IsServiceAddress reports whether address is a usable key of service in network; purpose "" - any purpose.
 func (s *Service) IsServiceAddress(ctx context.Context, service string, network constants.Network, address, purpose string) (bool, error) {
 	return s.repo.IsServiceAddress(ctx, s.txm.GetPool(), service, network, address, purpose)
+}
+
+const (
+	defaultListKeysLimit = 100
+	maxListKeysLimit     = 1000
+)
+
+// ListKeys returns keys of all services for admin, newest first.
+func (s *Service) ListKeys(ctx context.Context, filter ListKeysFilter) ([]WalletKey, error) {
+	if filter.Limit <= 0 {
+		filter.Limit = defaultListKeysLimit
+	}
+	filter.Limit = min(filter.Limit, maxListKeysLimit)
+
+	return s.repo.ListKeys(ctx, s.txm.GetPool(), filter)
 }
 
 // CreateKey generates new key of role.

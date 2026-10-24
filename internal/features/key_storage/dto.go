@@ -31,6 +31,27 @@ type ImportKeyParams struct {
 	ExternalRef *string
 }
 
+// ListKeysFilter is admin filter of keys, nil fields are not filtered.
+type ListKeysFilter struct {
+	Service     *string
+	Purpose     *string
+	Label       *string
+	Network     *constants.Network
+	Status      *KeyStatus
+	ExternalRef *string
+	Limit       int
+}
+
+type ListKeysQuery struct {
+	Service     *string `form:"service"`
+	Purpose     *string `form:"purpose"`
+	Label       *string `form:"label"`
+	Network     string  `form:"network" binding:"omitempty,network"`
+	Status      string  `form:"status" binding:"omitempty,oneof=active rotating pending disabled revoked"`
+	ExternalRef *string `form:"external_ref"`
+	Limit       int     `form:"limit" binding:"omitempty,min=1,max=1000"`
+}
+
 type GetRoleKeyParams struct {
 	Service string
 	Purpose string

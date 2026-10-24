@@ -18,6 +18,7 @@ import (
 )
 
 type adminServiceStub struct {
+	keysFilter ListKeysFilter
 	policy     json.RawMessage
 	roleParams CreateRoleParams
 	keyParams  CreateKeyParams
@@ -40,6 +41,14 @@ func (s *adminServiceStub) UpdatePolicy(_ context.Context, roleID uuid.UUID, raw
 		return nil, s.err
 	}
 	return &Role{ID: roleID, Service: "exchange", Network: constants.NetworkTron, Kind: RoleKindSingle, Policy: raw}, nil
+}
+
+func (s *adminServiceStub) ListKeys(_ context.Context, filter ListKeysFilter) ([]WalletKey, error) {
+	s.keysFilter = filter
+	if s.err != nil {
+		return nil, s.err
+	}
+	return []WalletKey{{ID: uuid.New(), Role: Role{Service: "exchange", Purpose: "executor", Kind: RoleKindPool}, Network: constants.NetworkEthereum, Address: "0xA", Status: KeyStatusActive, KeyCipher: []byte("secret")}}, nil
 }
 
 func (s *adminServiceStub) ListRoles(_ context.Context, service string) ([]Role, error) {
@@ -76,6 +85,7 @@ func doAdmin(t *testing.T, svc *adminServiceStub, method, path, body string) *ht
 	r.PUT("/api/v1/admin/roles/:id/policy", h.UpdatePolicy)
 	r.POST("/api/v1/admin/roles/:id/keys", h.CreateKey)
 	r.GET("/api/v1/admin/roles/:id/keys", h.ListRoleKeys)
+	r.GET("/api/v1/admin/keys", h.ListKeys)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest(method, path, strings.NewReader(body)))
 	return w
@@ -174,5 +184,32 @@ func TestAdminUpdatePolicy(t *testing.T) {
 	}
 	if w := doAdmin(t, &adminServiceStub{err: ErrRoleNotFound}, http.MethodPut, path, `{"policy":{}}`); w.Code != http.StatusNotFound {
 		t.Fatalf("not found: code = %d", w.Code)
+	}
+}
+
+func TestAdminListKeys(t *testing.T) {
+	svc := &adminServiceStub{}
+	w := doAdmin(t, svc, http.MethodGet, "/api/v1/admin/keys?service=exchange&purpose=executor&label=&network=ethereum&status=active&external_ref=o-1&limit=10", "")
+	if w.Code != http.StatusOK || strings.Contains(w.Body.String(), "secret") || !strings.Contains(w.Body.String(), `"address":"0xA"`) {
+		t.Fatalf("code = %d, body = %s", w.Code, w.Body)
+	}
+	f := svc.keysFilter
+	if f.Service == nil || *f.Service != "exchange" || f.Purpose == nil || *f.Purpose != "executor" || f.Label == nil || *f.Label != "" ||
+		f.Network == nil || *f.Network != constants.NetworkEthereum || f.Status == nil || *f.Status != KeyStatusActive ||
+		f.ExternalRef == nil || *f.ExternalRef != "o-1" || f.Limit != 10 {
+		t.Fatalf("filter = %+v", f)
+	}
+
+	svc = &adminServiceStub{}
+	if w := doAdmin(t, svc, http.MethodGet, "/api/v1/admin/keys", ""); w.Code != http.StatusOK || svc.keysFilter != (ListKeysFilter{}) {
+		t.Fatalf("no filters: code = %d, filter = %+v", w.Code, svc.keysFilter)
+	}
+
+	for name, query := range map[string]string{"bad network": "?network=btc", "bad status": "?status=deleted", "bad limit": "?limit=5000"} {
+		t.Run(name, func(t *testing.T) {
+			if w := doAdmin(t, &adminServiceStub{}, http.MethodGet, "/api/v1/admin/keys"+query, ""); w.Code != http.StatusBadRequest {
+				t.Fatalf("code = %d, body = %s", w.Code, w.Body)
+			}
+		})
 	}
 }

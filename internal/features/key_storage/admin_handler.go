@@ -18,6 +18,7 @@ type AdminService interface {
 	UpdatePolicy(ctx context.Context, roleID uuid.UUID, raw json.RawMessage) (*Role, error)
 	CreateKey(ctx context.Context, params CreateKeyParams) (*WalletKey, error)
 	ListRoleKeys(ctx context.Context, roleID uuid.UUID) ([]WalletKey, error)
+	ListKeys(ctx context.Context, filter ListKeysFilter) ([]WalletKey, error)
 }
 
 // AdminHandler manages roles and keys of all services. Private keys are never returned.
@@ -186,6 +187,54 @@ func (h *AdminHandler) ListRoleKeys(c *gin.Context) {
 	keys, err := h.service.ListRoleKeys(c.Request.Context(), roleID)
 	if err != nil {
 		h.log.Error().Err(err).Str("role_id", roleID.String()).Msg("admin list role keys")
+		httputil.Fail(c, err)
+		return
+	}
+
+	httputil.OK(c, NewKeysResponse(keys))
+}
+
+// ListKeys godoc
+// @Summary     List keys of all services
+// @Description Newest first, every filter applies only if parameter is present, so ?label= selects keys with empty label.
+// @Tags        admin
+// @Produce     json
+// @Param       service      query string false "Service name"
+// @Param       purpose      query string false "Role purpose"
+// @Param       label        query string false "Purpose refinement"
+// @Param       network      query string false "Network: ethereum, tron, arbitrum"
+// @Param       status       query string false "Status: active, rotating, pending, disabled, revoked"
+// @Param       external_ref query string false "Order id of deposit key"
+// @Param       limit        query int    false "Max keys, default 100, max 1000"
+// @Success     200 {object} httputil.Response{data=[]key_storage.KeyResponse}
+// @Failure     400 {object} httputil.ErrorResponse
+// @Router      /api/v1/admin/keys [get]
+func (h *AdminHandler) ListKeys(c *gin.Context) {
+	var query ListKeysQuery
+	if err := c.ShouldBindQuery(&query); err != nil {
+		httputil.BadRequestValidation(c, err)
+		return
+	}
+
+	filter := ListKeysFilter{
+		Service:     query.Service,
+		Purpose:     query.Purpose,
+		Label:       query.Label,
+		ExternalRef: query.ExternalRef,
+		Limit:       query.Limit,
+	}
+	if query.Network != "" {
+		network, _ := constants.ParseNetwork(query.Network)
+		filter.Network = &network
+	}
+	if query.Status != "" {
+		status, _ := ParseKeyStatus(query.Status)
+		filter.Status = &status
+	}
+
+	keys, err := h.service.ListKeys(c.Request.Context(), filter)
+	if err != nil {
+		h.log.Error().Err(err).Msg("admin list keys")
 		httputil.Fail(c, err)
 		return
 	}

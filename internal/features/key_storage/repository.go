@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -410,6 +412,106 @@ func (r *Repository) ListRoleKeys(ctx context.Context, tx db.DBTX, roleID uuid.U
 			&key.UpdatedAt,
 			&key.RotatedAt,
 			&key.RevokedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan wallet key: %w", err)
+		}
+
+		keys = append(keys, key)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate wallet keys: %w", err)
+	}
+
+	return keys, nil
+}
+
+// ListKeys returns keys of all services by filter without ciphers, newest first.
+func (r *Repository) ListKeys(ctx context.Context, tx db.DBTX, filter ListKeysFilter) ([]WalletKey, error) {
+	conditions := []string{"TRUE"}
+	args := []any{}
+	add := func(condition string, value any) {
+		args = append(args, value)
+		conditions = append(conditions, fmt.Sprintf(condition, len(args)))
+	}
+
+	if filter.Service != nil {
+		add("r.service = $%d", *filter.Service)
+	}
+
+	if filter.Purpose != nil {
+		add("r.purpose = $%d", *filter.Purpose)
+	}
+
+	if filter.Label != nil {
+		add("r.label = $%d", *filter.Label)
+	}
+
+	if filter.Network != nil {
+		add("k.network = $%d", *filter.Network)
+	}
+
+	if filter.Status != nil {
+		add("k.status = $%d", *filter.Status)
+	}
+
+	if filter.ExternalRef != nil {
+		add("k.external_ref = $%d", *filter.ExternalRef)
+	}
+
+	args = append(args, filter.Limit)
+
+	rows, err := tx.Query(ctx, `
+		SELECT
+			k.id,
+			k.role_id,
+			k.network,
+			k.alias,
+			k.address,
+			k.external_ref,
+			k.status,
+			k.kek_version,
+			k.replaced_by,
+			k.created_at,
+			k.updated_at,
+			k.rotated_at,
+			k.revoked_at,`+roleColumns+`
+		FROM wallet_keys k
+		JOIN wallet_roles r ON r.id = k.role_id
+		WHERE `+strings.Join(conditions, " AND ")+`
+		ORDER BY k.created_at DESC, k.id
+		LIMIT $`+strconv.Itoa(len(args)),
+		args...,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("select wallet keys: %w", err)
+	}
+	defer rows.Close()
+
+	keys := []WalletKey{}
+	for rows.Next() {
+		var key WalletKey
+		if err := rows.Scan(
+			&key.ID,
+			&key.RoleID,
+			&key.Network,
+			&key.Alias,
+			&key.Address,
+			&key.ExternalRef,
+			&key.Status,
+			&key.KEKVersion,
+			&key.ReplacedBy,
+			&key.CreatedAt,
+			&key.UpdatedAt,
+			&key.RotatedAt,
+			&key.RevokedAt,
+			&key.Role.ID,
+			&key.Role.Service,
+			&key.Role.Purpose,
+			&key.Role.Label,
+			&key.Role.Network,
+			&key.Role.Kind,
+			&key.Role.Policy,
+			&key.Role.CreatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan wallet key: %w", err)
 		}

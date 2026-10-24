@@ -15,6 +15,91 @@ const docTemplate = `{
     "host": "{{.Host}}",
     "basePath": "{{.BasePath}}",
     "paths": {
+        "/api/v1/admin/keys": {
+            "get": {
+                "description": "Newest first, every filter applies only if parameter is present, so ?label= selects keys with empty label.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "List keys of all services",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Service name",
+                        "name": "service",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Role purpose",
+                        "name": "purpose",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Purpose refinement",
+                        "name": "label",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Network: ethereum, tron, arbitrum",
+                        "name": "network",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Status: active, rotating, pending, disabled, revoked",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Order id of deposit key",
+                        "name": "external_ref",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Max keys, default 100, max 1000",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/httputil.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "$ref": "#/definitions/key_storage.KeyResponse"
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httputil.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/admin/roles": {
             "get": {
                 "produces": [
