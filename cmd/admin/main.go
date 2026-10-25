@@ -31,6 +31,16 @@ Services:
   create-service-client   register service, print its X-Service-Key once
       -service <name>         service name, e.g. exchange
 
+  rotate-service-client   issue new X-Service-Key, old one works until grace period ends
+      -service <name>
+      -grace <duration>       how long old key is accepted, default 24h, 0 rejects it at once
+
+  revoke-service-client   reject key at once, e.g. after leak
+      -id <service_client_id>
+
+  list-service-clients    list keys of services without hashes
+      -service <name>         optional, all services when empty
+
 Roles:
   create-role             create wallet role of service
       -service <name>         service name, e.g. exchange
@@ -69,6 +79,7 @@ Keys:
 
 Examples:
   wallet-admin create-service-client -service exchange
+  wallet-admin rotate-service-client -service exchange -grace 24h
   wallet-admin create-role -service exchange -purpose gas_station -network ethereum -kind single -policy /policies/atoken-gas-station-ethereum.json
   wallet-admin list-roles -service exchange
   wallet-admin set-policy -role <role_id> -policy /policies/atoken-executor-ethereum.json
@@ -88,6 +99,12 @@ func main() {
 		fmt.Print(usage)
 	case "create-service-client":
 		createServiceClient(os.Args[2:])
+	case "rotate-service-client":
+		rotateServiceClient(os.Args[2:])
+	case "revoke-service-client":
+		revokeServiceClient(os.Args[2:])
+	case "list-service-clients":
+		listServiceClients(os.Args[2:])
 	case "create-role":
 		createRole(os.Args[2:])
 	case "list-roles":
@@ -159,6 +176,92 @@ func createServiceClient(args []string) {
 	fmt.Printf("service_client_id:  %s\n", client.ID)
 	fmt.Printf("X-Service-Key:      %s\n", key)
 	fmt.Println("сохраните ключ сейчас: в базе хранится только его хэш")
+}
+
+func rotateServiceClient(args []string) {
+	fs := flag.NewFlagSet("rotate-service-client", flag.ExitOnError)
+	service := fs.String("service", "", "service name, e.g. exchange")
+	grace := fs.Duration("grace", 24*time.Hour, "how long old key is accepted")
+	_ = fs.Parse(args)
+
+	ctx := context.Background()
+	a := newAdmin(ctx)
+	defer a.pool.Close()
+
+	srv := serviceclient.NewService(a.log, serviceclient.NewRepository(), a.txm)
+
+	key, client, old, err := srv.RotateClient(ctx, *service, *grace)
+	if err != nil {
+		a.log.Fatal().Err(err).Msg("failed to rotate service client")
+	}
+
+	fmt.Printf("service:            %s\n", client.Service)
+	fmt.Printf("service_client_id:  %s\n", client.ID)
+	fmt.Printf("X-Service-Key:      %s\n", key)
+	fmt.Printf("old key %s works until %s UTC\n", old.ID, old.ExpiresAt.Format(time.DateTime))
+	fmt.Println("сохраните ключ сейчас: в базе хранится только его хэш")
+}
+
+func revokeServiceClient(args []string) {
+	fs := flag.NewFlagSet("revoke-service-client", flag.ExitOnError)
+	id := fs.String("id", "", "service client id")
+	_ = fs.Parse(args)
+
+	ctx := context.Background()
+	a := newAdmin(ctx)
+	defer a.pool.Close()
+
+	clientID, err := uuid.Parse(*id)
+	if err != nil {
+		a.log.Fatal().Str("id", *id).Msg("invalid service client id")
+	}
+
+	srv := serviceclient.NewService(a.log, serviceclient.NewRepository(), a.txm)
+	if err := srv.RevokeClient(ctx, clientID); err != nil {
+		a.log.Fatal().Err(err).Msg("failed to revoke service client")
+	}
+
+	fmt.Printf("service client %s revoked\n", clientID)
+}
+
+func listServiceClients(args []string) {
+	fs := flag.NewFlagSet("list-service-clients", flag.ExitOnError)
+	service := fs.String("service", "", "service name, all services when empty")
+	_ = fs.Parse(args)
+
+	ctx := context.Background()
+	a := newAdmin(ctx)
+	defer a.pool.Close()
+
+	srv := serviceclient.NewService(a.log, serviceclient.NewRepository(), a.txm)
+	clients, err := srv.ListClients(ctx, *service)
+	if err != nil {
+		a.log.Fatal().Err(err).Msg("failed to list service clients")
+	}
+
+	now := time.Now().UTC()
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(w, "SERVICE_CLIENT_ID\tSERVICE\tSTATE\tEXPIRES_AT\tREPLACED_BY\tCREATED_AT")
+	for _, client := range clients {
+		state, expiresAt, replacedBy := "primary", "", ""
+		switch {
+		case !client.IsActive:
+			state = "revoked"
+		case client.ExpiresAt != nil && !client.ExpiresAt.After(now):
+			state = "expired"
+		case client.ExpiresAt != nil:
+			state = "expiring"
+		}
+		if client.ExpiresAt != nil {
+			expiresAt = client.ExpiresAt.Format(time.DateTime)
+		}
+		if client.ReplacedBy != nil {
+			replacedBy = client.ReplacedBy.String()
+		}
+
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", client.ID, client.Service, state, expiresAt, replacedBy, client.CreatedAt.Format(time.DateTime))
+	}
+	_ = w.Flush()
 }
 
 func createRole(args []string) {

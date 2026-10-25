@@ -20,6 +20,9 @@
 ### Авторизация сервисов
 
 - Заголовок `X-Service-Key`. Ключ выдаёт `wallet-admin create-service-client -service <name>`, показывается один раз, в базе хранится только хэш.
+- У сервиса один основной ключ: повторный `create-service-client` → `SERVICE_CLIENT_EXISTS`.
+- Смена ключа без простоя: `rotate-service-client -service <name> [-grace 24h]` выдаёт новый ключ, старый принимается ещё `grace` (по умолчанию 24 часа) — за это время сервис выкатывается с новым. `-grace 0` отключает старый сразу.
+- При утечке: `revoke-service-client -id <id>` — ключ перестаёт приниматься сразу.
 - Имя сервиса берётся только из ключа, не из тела запроса. Сервис видит только свои роли и ключи.
 
 ### Модель
@@ -168,6 +171,9 @@ curl -s "http://localhost:8080/api/v1/admin/keys?service=exchange&purpose=execut
 
 ```bash
 wallet-admin create-service-client -service exchange
+wallet-admin rotate-service-client -service exchange [-grace 24h]
+wallet-admin revoke-service-client -id <service_client_id>
+wallet-admin list-service-clients [-service exchange]
 wallet-admin create-role -service exchange -purpose gas_station -label atoken -network tron -kind single [-policy policy.json]
 wallet-admin list-roles [-service exchange]
 wallet-admin list-keys [-service exchange] [-purpose executor] [-label ""] [-network ethereum] [-status active] [-external-ref order-1] [-limit 100]
