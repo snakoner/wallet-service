@@ -2,3 +2,4 @@
 .env
 wallet-service
 wallet-admin
+/gas-station-send

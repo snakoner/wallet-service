@@ -178,6 +178,18 @@ echo "<private key hex>" | wallet-admin import-key -role <role_id> [-alias name]
 
 `import-key` — перенос существующих ключей из env сервисов. По HTTP импорта нет специально. В production admin API нет, политику там меняют только через `set-policy`.
 
+## Инструменты
+
+### `cmd/gas-station-send` — отправка ETH с газового кошелька
+
+Делает то же, что будет делать сервис: берёт текущий ключ газового кошелька (`GET /roles/gas_station/key`), собирает неподписанную EIP-1559 tx по данным RPC (chainId, pending nonce, комиссии), подписывает через `sign-transaction` и, с `-send`, отправляет в сеть.
+
+```bash
+WALLET_SERVICE_KEY=... ETH_RPC_URL=https://... go run ./cmd/gas-station-send -to 0x... -amount 0.001 [-purpose gas_station] [-label atoken] [-send]
+```
+
+Без `-send` только печатает `tx_hash` и подписанную tx. Получатель должен быть разрешён политикой газового кошелька, иначе `403 POLICY_VIOLATION`. Справка — запуск без флагов.
+
 ## Ещё не сделано
 
 | Что | Статус |

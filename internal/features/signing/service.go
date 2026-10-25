@@ -53,7 +53,7 @@ func (s *Service) SignTransaction(ctx context.Context, params SignTransactionPar
 
 	op, err := signer.DecodeTx(params.RawTx)
 	if err != nil {
-		return nil, ErrInvalidTransaction.WithCause(err)
+		return nil, ErrInvalidTransaction.WithMessage("invalid transaction: " + err.Error()).WithCause(err)
 	}
 
 	var (
