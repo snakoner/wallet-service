@@ -1,0 +1,83 @@
+name: wallet-service-test
+
+# Environment for integration tests: make test-integration
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: test
+      POSTGRES_PASSWORD: test
+      POSTGRES_DB: wallet_test
+    ports:
+      - "15433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U test -d wallet_test"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  # migrations are applied, rolled back and applied again to check down migrations
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile.migrate
+    image: wallet-service-migrate-test
+    command: ["-dir", "/migrations", "postgres", "host=postgres port=5432 user=test password=test dbname=wallet_test sslmode=disable", "up"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  migrate-down:
+    image: wallet-service-migrate-test
+    command: ["-dir", "/migrations", "postgres", "host=postgres port=5432 user=test password=test dbname=wallet_test sslmode=disable", "down-to", "0"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  migrate-final:
+    image: wallet-service-migrate-test
+    command: ["-dir", "/migrations", "postgres", "host=postgres port=5432 user=test password=test dbname=wallet_test sslmode=disable", "up"]
+    depends_on:
+      migrate-down:
+        condition: service_completed_successfully
+
+  anvil:
+    image: ghcr.io/foundry-rs/foundry:v1.5.1
+    entrypoint: ["anvil", "--host", "0.0.0.0", "--chain-id", "31337"]
+    ports:
+      - "18545:8545"
+    healthcheck:
+      test: ["CMD", "cast", "block-number", "--rpc-url", "http://localhost:8545"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      migrate-final:
+        condition: service_completed_successfully
+    ports:
+      - "18090:8080"
+    environment:
+      HTTP_PORT: 8080
+      APP_ENVIRONMENT: integration
+      LOG_LEVEL: info
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: test
+      DB_PASSWORD: test
+      DB_NAME: wallet_test
+      DB_SSL_MODE: disable
+      # test-only master key, tests use the same value to seed keys
+      KEY_STORAGE_KEK: "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+      KEY_STORAGE_KEK_VERSION: 1
+      ETH_CHAIN_ID: 31337
+      ARBITRUM_CHAIN_ID: 42161
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/healthz || exit 1"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
