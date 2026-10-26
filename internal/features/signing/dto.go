@@ -1,28 +1,11 @@
 package signing
 
-import (
-	"github.com/google/uuid"
-
-	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/constants"
-)
-
-type SignTransactionParams struct {
-	Service string
-	KeyID   uuid.UUID
-	Network constants.Network
-	RawTx   []byte
-	LeaseID *uuid.UUID
-}
-
-type SignedTransaction struct {
-	SignedTx []byte
-	TxHash   string
-}
+import "github.com/google/uuid"
 
 type SignTransactionRequest struct {
 	Network string     `json:"network" binding:"required,network"`
-	RawTx   string     `json:"raw_tx" binding:"required"`
-	LeaseID *uuid.UUID `json:"lease_id"` // required for pool keys // hex of unsigned tx: ethereum - types.Transaction.MarshalBinary, tron - raw_data_hex
+	RawTx   string     `json:"raw_tx" binding:"required"` // hex of unsigned tx: ethereum - types.Transaction.MarshalBinary, tron - raw_data_hex
+	LeaseID *uuid.UUID `json:"lease_id"`                  // required for pool keys
 }
 
 type SignTransactionResponse struct {
