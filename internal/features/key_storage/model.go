@@ -9,38 +9,6 @@ import (
 	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/constants"
 )
 
-type KeyStatus int8
-
-const (
-	KeyStatusActive   KeyStatus = 0 // active
-	KeyStatusRotating KeyStatus = 1 // rotating, but there is unsend txs
-	KeyStatusPending  KeyStatus = 2 // new key after rotating, no gas
-	KeyStatusDisabled KeyStatus = 3 // manually disabled, can become active again
-	KeyStatusRevoked  KeyStatus = 4 // rotating -> revoked
-)
-
-var KeyStatusStrings = map[KeyStatus]string{
-	KeyStatusActive:   "active",
-	KeyStatusRotating: "rotating",
-	KeyStatusPending:  "pending",
-	KeyStatusDisabled: "disabled",
-	KeyStatusRevoked:  "revoked",
-}
-
-func (s KeyStatus) String() string {
-	return KeyStatusStrings[s]
-}
-
-func ParseKeyStatus(s string) (KeyStatus, bool) {
-	for status, name := range KeyStatusStrings {
-		if name == s {
-			return status, true
-		}
-	}
-
-	return KeyStatusActive, false
-}
-
 type RoleKind int8
 
 const (
@@ -80,6 +48,38 @@ type Role struct {
 	CreatedAt time.Time
 }
 
+type KeyStatus int8
+
+const (
+	KeyStatusActive   KeyStatus = 0 // active
+	KeyStatusRotating KeyStatus = 1 // rotating, but there is unsend txs
+	KeyStatusPending  KeyStatus = 2 // new key after rotating, no gas
+	KeyStatusDisabled KeyStatus = 3 // manually disabled, can become active again
+	KeyStatusRevoked  KeyStatus = 4 // rotating -> revoked
+)
+
+var KeyStatusStrings = map[KeyStatus]string{
+	KeyStatusActive:   "active",
+	KeyStatusRotating: "rotating",
+	KeyStatusPending:  "pending",
+	KeyStatusDisabled: "disabled",
+	KeyStatusRevoked:  "revoked",
+}
+
+func (s KeyStatus) String() string {
+	return KeyStatusStrings[s]
+}
+
+func ParseKeyStatus(s string) (KeyStatus, bool) {
+	for status, name := range KeyStatusStrings {
+		if name == s {
+			return status, true
+		}
+	}
+
+	return KeyStatusActive, false
+}
+
 type WalletKey struct {
 	ID                 uuid.UUID
 	RoleID             uuid.UUID
@@ -108,4 +108,62 @@ type Lease struct {
 	ID        uuid.UUID
 	ExpiresAt time.Time
 	Key       WalletKey
+}
+
+type CreateRoleParams struct {
+	Service string
+	Purpose string
+	Label   string
+	Network constants.Network
+	Kind    RoleKind
+	Policy  json.RawMessage
+}
+
+type CreateKeyParams struct {
+	RoleID      uuid.UUID
+	Alias       *string
+	ExternalRef *string
+}
+
+type ImportKeyParams struct {
+	RoleID      uuid.UUID
+	PrivateKey  []byte // hex, cleared after import
+	Alias       *string
+	ExternalRef *string
+}
+
+type ListKeysFilter struct {
+	Service     *string
+	Purpose     *string
+	Label       *string
+	Network     *constants.Network
+	Status      *KeyStatus
+	ExternalRef *string
+	Limit       int
+}
+
+type GetRoleKeyParams struct {
+	Service string
+	Purpose string
+	Label   string
+	Network constants.Network
+}
+
+type GetDepositKeyParams struct {
+	Service     string
+	Purpose     string
+	Label       string
+	Network     constants.Network
+	ExternalRef string
+	Alias       *string
+}
+
+type AcquireLeaseParams struct {
+	Service string
+	Purpose string
+	Label   string
+	Network constants.Network
+	Owner   string
+	TTL     time.Duration
+	Exclude []uuid.UUID
 }

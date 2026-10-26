@@ -63,7 +63,7 @@ func NewRouter(
 			roles.GET("/:purpose/key", handlers.KeyStorage.GetRoleKey)
 			roles.GET("/:purpose/keys", handlers.KeyStorage.GetRoleKeys)
 			roles.POST("/:purpose/lease", handlers.KeyStorage.AcquireLease)
-			roles.POST("/:purpose/deposit-key", handlers.KeyStorage.GetDepositKey)
+			roles.POST("/:purpose/deposit-key", handlers.KeyStorage.GetOrCreateDepositKey)
 		}
 
 		leases := api.Group("/leases", serviceAuth.Handle())

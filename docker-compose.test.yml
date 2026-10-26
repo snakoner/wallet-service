@@ -16,7 +16,6 @@ services:
       timeout: 3s
       retries: 30
 
-  # migrations are applied, rolled back and applied again to check down migrations
   migrate:
     build:
       context: .
@@ -71,7 +70,6 @@ services:
       DB_PASSWORD: test
       DB_NAME: wallet_test
       DB_SSL_MODE: disable
-      # test-only master key, tests use the same value to seed keys
       KEY_STORAGE_KEK: "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
       KEY_STORAGE_KEK_VERSION: 1
       ETH_CHAIN_ID: 31337
