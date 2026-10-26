@@ -76,6 +76,9 @@ definitions:
         type: string
       purpose:
         type: string
+      replaced_by:
+        description: new key after rotation
+        type: string
       service:
         type: string
       status:
@@ -185,6 +188,167 @@ paths:
           schema:
             $ref: '#/definitions/httputil.ErrorResponse'
       summary: List keys of all services
+      tags:
+      - admin
+  /api/v1/admin/keys/{id}/activate:
+    post:
+      parameters:
+      - description: Pending key id
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httputil.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/key_storage.KeyResponse'
+              type: object
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httputil.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/httputil.ErrorResponse'
+      summary: Activate pending key, key replaced by it becomes rotating
+      tags:
+      - admin
+  /api/v1/admin/keys/{id}/disable:
+    post:
+      parameters:
+      - description: Active key id
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httputil.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/key_storage.KeyResponse'
+              type: object
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httputil.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/httputil.ErrorResponse'
+      summary: Disable active key until enable
+      tags:
+      - admin
+  /api/v1/admin/keys/{id}/enable:
+    post:
+      parameters:
+      - description: Disabled key id
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httputil.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/key_storage.KeyResponse'
+              type: object
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httputil.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/httputil.ErrorResponse'
+      summary: Enable disabled key
+      tags:
+      - admin
+  /api/v1/admin/keys/{id}/revoke:
+    post:
+      parameters:
+      - description: Key id
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httputil.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/key_storage.KeyResponse'
+              type: object
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httputil.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/httputil.ErrorResponse'
+      summary: Revoke key forever, revoking pending key cancels rotation
+      tags:
+      - admin
+  /api/v1/admin/keys/{id}/rotate:
+    post:
+      description: Old key keeps working and may send its funds to replacement. Switch
+        keys with activate.
+      parameters:
+      - description: Active key id
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Replacement key
+          schema:
+            allOf:
+            - $ref: '#/definitions/httputil.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/key_storage.KeyResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httputil.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httputil.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/httputil.ErrorResponse'
+      summary: 'Start rotation: create pending replacement of active key'
       tags:
       - admin
   /api/v1/admin/roles:

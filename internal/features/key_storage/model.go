@@ -81,20 +81,21 @@ type Role struct {
 }
 
 type WalletKey struct {
-	ID          uuid.UUID
-	RoleID      uuid.UUID
-	Role        Role
-	Network     constants.Network
-	Alias       *string
-	Address     string
-	ExternalRef *string
-	Status      KeyStatus
-	KeyCipher   []byte
-	DEKCipher   []byte
-	KEKVersion  int32
-	ReplacedBy  *uuid.UUID
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
-	RotatedAt   *time.Time
-	RevokedAt   *time.Time
+	ID                 uuid.UUID
+	RoleID             uuid.UUID
+	Role               Role
+	Network            constants.Network
+	Alias              *string
+	Address            string
+	ExternalRef        *string
+	Status             KeyStatus
+	KeyCipher          []byte
+	DEKCipher          []byte
+	KEKVersion         int32
+	ReplacedBy         *uuid.UUID // new key after rotation
+	ReplacementAddress *string
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+	RotatedAt          *time.Time
+	RevokedAt          *time.Time
 }

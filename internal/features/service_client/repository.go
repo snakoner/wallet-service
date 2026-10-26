@@ -67,7 +67,6 @@ func (r *Repository) CreateClient(ctx context.Context, tx db.DBTX, client *Servi
 	return nil
 }
 
-// GetActiveByKeyHash returns client whose key is active and not expired at now.
 func (r *Repository) GetActiveByKeyHash(ctx context.Context, tx db.DBTX, keyHash []byte, now time.Time) (*ServiceClient, error) {
 	client, err := scanClient(tx.QueryRow(ctx, `
 		SELECT `+clientColumns+`
@@ -87,7 +86,6 @@ func (r *Repository) GetActiveByKeyHash(ctx context.Context, tx db.DBTX, keyHash
 	return client, nil
 }
 
-// GetPrimaryForUpdate locks primary key of service: active and without expiration.
 func (r *Repository) GetPrimaryForUpdate(ctx context.Context, tx db.DBTX, service string) (*ServiceClient, error) {
 	client, err := scanClient(tx.QueryRow(ctx, `
 		SELECT `+clientColumns+`
@@ -142,7 +140,6 @@ func (r *Repository) RevokeClient(ctx context.Context, tx db.DBTX, id uuid.UUID,
 	return nil
 }
 
-// ListClients returns clients of service, all clients when service is empty, newest first.
 func (r *Repository) ListClients(ctx context.Context, tx db.DBTX, service string) ([]ServiceClient, error) {
 	rows, err := tx.Query(ctx, `
 		SELECT `+clientColumns+`

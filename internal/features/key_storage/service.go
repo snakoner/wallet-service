@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -36,6 +37,10 @@ type repository interface {
 	ListKeys(ctx context.Context, tx db.DBTX, filter ListKeysFilter) ([]WalletKey, error)
 	UpdateRolePolicy(ctx context.Context, tx db.DBTX, id uuid.UUID, policy json.RawMessage) error
 	IsServiceAddress(ctx context.Context, tx db.DBTX, service string, network constants.Network, address, purpose string) (bool, error)
+	GetKeyForUpdate(ctx context.Context, tx db.DBTX, id uuid.UUID) (*WalletKey, error)
+	GetReplacedKeyForUpdate(ctx context.Context, tx db.DBTX, replacementID uuid.UUID) (*WalletKey, error)
+	UpdateKeyStatus(ctx context.Context, tx db.DBTX, id uuid.UUID, status KeyStatus, now time.Time) error
+	SetKeyReplacedBy(ctx context.Context, tx db.DBTX, id uuid.UUID, replacedBy *uuid.UUID, now time.Time) error
 }
 
 type KekCipher interface {
@@ -150,7 +155,6 @@ func (s *Service) ListRoleKeys(ctx context.Context, roleID uuid.UUID) ([]WalletK
 	return keys, nil
 }
 
-// UpdatePolicy replaces signing policy of role, it applies to all keys of role at once.
 func (s *Service) UpdatePolicy(ctx context.Context, roleID uuid.UUID, raw json.RawMessage) (*Role, error) {
 	role, err := s.repo.GetRoleByID(ctx, s.txm.GetPool(), roleID)
 	if err != nil {
@@ -177,7 +181,6 @@ func (s *Service) UpdatePolicy(ctx context.Context, roleID uuid.UUID, raw json.R
 	return role, nil
 }
 
-// IsServiceAddress reports whether address is a usable key of service in network; purpose "" - any purpose.
 func (s *Service) IsServiceAddress(ctx context.Context, service string, network constants.Network, address, purpose string) (bool, error) {
 	return s.repo.IsServiceAddress(ctx, s.txm.GetPool(), service, network, address, purpose)
 }
@@ -187,7 +190,6 @@ const (
 	maxListKeysLimit     = 1000
 )
 
-// ListKeys returns keys of all services for admin, newest first.
 func (s *Service) ListKeys(ctx context.Context, filter ListKeysFilter) ([]WalletKey, error) {
 	if filter.Limit <= 0 {
 		filter.Limit = defaultListKeysLimit
@@ -197,19 +199,10 @@ func (s *Service) ListKeys(ctx context.Context, filter ListKeysFilter) ([]Wallet
 	return s.repo.ListKeys(ctx, s.txm.GetPool(), filter)
 }
 
-// CreateKey generates new key of role.
 func (s *Service) CreateKey(ctx context.Context, params CreateKeyParams) (*WalletKey, error) {
-	return s.addKey(ctx, params.RoleID, params.Alias, params.ExternalRef, func(keys networkKeys) ([]byte, string, error) {
-		privateKey, address, err := keys.generate()
-		if err != nil {
-			return nil, "", fmt.Errorf("generate address: %w", err)
-		}
-
-		return []byte(privateKey), address, nil
-	})
+	return s.addKey(ctx, params.RoleID, params.Alias, params.ExternalRef, generateKey)
 }
 
-// ImportKey adds existing private key to role, e.g. key moved from service env.
 func (s *Service) ImportKey(ctx context.Context, params ImportKeyParams) (*WalletKey, error) {
 	defer clear(params.PrivateKey)
 
@@ -228,7 +221,6 @@ func (s *Service) ImportKey(ctx context.Context, params ImportKeyParams) (*Walle
 	})
 }
 
-// addKey creates key in locked role: single role has one active key, deposit key has external_ref.
 func (s *Service) addKey(
 	ctx context.Context,
 	roleID uuid.UUID,
@@ -257,45 +249,254 @@ func (s *Service) addKey(
 			}
 		}
 
-		privateKey, address, err := makeKey(keysByNetwork[role.Network])
-		if err != nil {
-			return err
-		}
-
-		keyCipher, dekCipher, err := s.encryptPrivateKey(privateKey)
-		if err != nil {
-			return fmt.Errorf("encrypt private key: %w", err)
-		}
-
-		id, err := uuid.NewV7()
-		if err != nil {
-			return fmt.Errorf("generate key id: %w", err)
-		}
-
-		now := time.Now().UTC()
-		key = &WalletKey{
-			ID:          id,
-			RoleID:      role.ID,
-			Role:        *role,
-			Network:     role.Network,
-			Alias:       alias,
-			Address:     address,
-			ExternalRef: externalRef,
-			Status:      KeyStatusActive,
-			KeyCipher:   keyCipher,
-			DEKCipher:   dekCipher,
-			KEKVersion:  s.kekVersion,
-			CreatedAt:   now,
-			UpdatedAt:   now,
-		}
-
-		return s.repo.CreateKey(ctx, tx, key)
+		key, err = s.insertKey(ctx, tx, role, alias, externalRef, KeyStatusActive, makeKey)
+		return err
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	s.log.Info().
+	s.logKey(key, "wallet key created")
+
+	return key, nil
+}
+
+// Caller holds role lock.
+func (s *Service) insertKey(
+	ctx context.Context,
+	tx db.DBTX,
+	role *Role,
+	alias, externalRef *string,
+	status KeyStatus,
+	makeKey func(keys networkKeys) ([]byte, string, error),
+) (*WalletKey, error) {
+	privateKey, address, err := makeKey(keysByNetwork[role.Network])
+	if err != nil {
+		return nil, err
+	}
+
+	keyCipher, dekCipher, err := s.encryptPrivateKey(privateKey)
+	if err != nil {
+		return nil, fmt.Errorf("encrypt private key: %w", err)
+	}
+
+	id, err := uuid.NewV7()
+	if err != nil {
+		return nil, fmt.Errorf("generate key id: %w", err)
+	}
+
+	now := time.Now().UTC()
+	key := &WalletKey{
+		ID:          id,
+		RoleID:      role.ID,
+		Role:        *role,
+		Network:     role.Network,
+		Alias:       alias,
+		Address:     address,
+		ExternalRef: externalRef,
+		Status:      status,
+		KeyCipher:   keyCipher,
+		DEKCipher:   dekCipher,
+		KEKVersion:  s.kekVersion,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+
+	if err := s.repo.CreateKey(ctx, tx, key); err != nil {
+		return nil, err
+	}
+
+	return key, nil
+}
+
+func generateKey(keys networkKeys) ([]byte, string, error) {
+	privateKey, address, err := keys.generate()
+	if err != nil {
+		return nil, "", fmt.Errorf("generate address: %w", err)
+	}
+
+	return []byte(privateKey), address, nil
+}
+
+func (s *Service) RotateKey(ctx context.Context, keyID uuid.UUID) (*WalletKey, error) {
+	var replacement *WalletKey
+	err := s.txm.WithTx(ctx, func(ctx context.Context, tx db.DBTX) error {
+		old, err := s.repo.GetKeyForUpdate(ctx, tx, keyID)
+		if err != nil {
+			return err
+		}
+
+		if old.Role.Kind == RoleKindDeposit {
+			return ErrInvalidParams.WithMessage("deposit keys are not rotated")
+		}
+
+		if old.Status != KeyStatusActive {
+			return ErrInvalidKeyStatus.WithMessage("only active key can be rotated")
+		}
+
+		if old.ReplacedBy != nil {
+			return ErrRotationInProgress
+		}
+
+		role, err := s.repo.GetRoleForUpdate(ctx, tx, old.RoleID)
+		if err != nil {
+			return err
+		}
+
+		replacement, err = s.insertKey(ctx, tx, role, old.Alias, nil, KeyStatusPending, generateKey)
+		if err != nil {
+			return err
+		}
+
+		return s.repo.SetKeyReplacedBy(ctx, tx, old.ID, &replacement.ID, replacement.CreatedAt)
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	s.logKey(replacement, "wallet key rotation started", "old_key_id", keyID.String())
+
+	return replacement, nil
+}
+
+func (s *Service) ActivateKey(ctx context.Context, keyID uuid.UUID) (*WalletKey, error) {
+	var key *WalletKey
+	err := s.txm.WithTx(ctx, func(ctx context.Context, tx db.DBTX) error {
+		var err error
+		if key, err = s.repo.GetKeyForUpdate(ctx, tx, keyID); err != nil {
+			return err
+		}
+
+		if key.Status != KeyStatusPending {
+			return ErrInvalidKeyStatus.WithMessage("only pending key can be activated")
+		}
+
+		if _, err := s.repo.GetRoleForUpdate(ctx, tx, key.RoleID); err != nil {
+			return err
+		}
+
+		now := time.Now().UTC()
+		old, err := s.repo.GetReplacedKeyForUpdate(ctx, tx, key.ID)
+		if err != nil && !errors.Is(err, ErrKeyNotFound) {
+			return err
+		}
+
+		if old != nil && old.Status == KeyStatusActive {
+			if err := s.repo.UpdateKeyStatus(ctx, tx, old.ID, KeyStatusRotating, now); err != nil {
+				return err
+			}
+		}
+
+		if key.Role.Kind == RoleKindSingle {
+			exists, err := s.repo.HasActiveKey(ctx, tx, key.RoleID)
+			if err != nil {
+				return err
+			}
+
+			if exists {
+				return ErrActiveKeyExists
+			}
+		}
+
+		key.Status = KeyStatusActive
+		return s.repo.UpdateKeyStatus(ctx, tx, key.ID, KeyStatusActive, now)
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	s.logKey(key, "wallet key activated")
+
+	return key, nil
+}
+
+func (s *Service) RevokeKey(ctx context.Context, keyID uuid.UUID) (*WalletKey, error) {
+	var key *WalletKey
+	err := s.txm.WithTx(ctx, func(ctx context.Context, tx db.DBTX) error {
+		var err error
+		if key, err = s.repo.GetKeyForUpdate(ctx, tx, keyID); err != nil {
+			return err
+		}
+
+		if key.Status == KeyStatusRevoked {
+			return ErrInvalidKeyStatus.WithMessage("key is already revoked")
+		}
+
+		now := time.Now().UTC()
+		if key.Status == KeyStatusPending {
+			old, err := s.repo.GetReplacedKeyForUpdate(ctx, tx, key.ID)
+			if err != nil && !errors.Is(err, ErrKeyNotFound) {
+				return err
+			}
+
+			if old != nil {
+				if err := s.repo.SetKeyReplacedBy(ctx, tx, old.ID, nil, now); err != nil {
+					return err
+				}
+			}
+		}
+
+		key.Status = KeyStatusRevoked
+		return s.repo.UpdateKeyStatus(ctx, tx, key.ID, KeyStatusRevoked, now)
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	s.logKey(key, "wallet key revoked")
+
+	return key, nil
+}
+
+func (s *Service) DisableKey(ctx context.Context, keyID uuid.UUID) (*WalletKey, error) {
+	return s.switchKey(ctx, keyID, KeyStatusActive, KeyStatusDisabled, "wallet key disabled")
+}
+
+func (s *Service) EnableKey(ctx context.Context, keyID uuid.UUID) (*WalletKey, error) {
+	return s.switchKey(ctx, keyID, KeyStatusDisabled, KeyStatusActive, "wallet key enabled")
+}
+
+func (s *Service) switchKey(ctx context.Context, keyID uuid.UUID, from, to KeyStatus, message string) (*WalletKey, error) {
+	var key *WalletKey
+	err := s.txm.WithTx(ctx, func(ctx context.Context, tx db.DBTX) error {
+		var err error
+		if key, err = s.repo.GetKeyForUpdate(ctx, tx, keyID); err != nil {
+			return err
+		}
+
+		if key.Status != from {
+			return ErrInvalidKeyStatus.WithMessage("key must be " + from.String())
+		}
+
+		if _, err := s.repo.GetRoleForUpdate(ctx, tx, key.RoleID); err != nil {
+			return err
+		}
+
+		if to == KeyStatusActive && key.Role.Kind == RoleKindSingle {
+			exists, err := s.repo.HasActiveKey(ctx, tx, key.RoleID)
+			if err != nil {
+				return err
+			}
+
+			if exists {
+				return ErrActiveKeyExists
+			}
+		}
+
+		key.Status = to
+		return s.repo.UpdateKeyStatus(ctx, tx, key.ID, to, time.Now().UTC())
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	s.logKey(key, message)
+
+	return key, nil
+}
+
+func (s *Service) logKey(key *WalletKey, message string, fields ...string) {
+	event := s.log.Info().
 		Str("key_id", key.ID.String()).
 		Str("role_id", key.RoleID.String()).
 		Str("service", key.Role.Service).
@@ -303,12 +504,13 @@ func (s *Service) addKey(
 		Str("label", key.Role.Label).
 		Str("network", key.Network.String()).
 		Str("address", key.Address).
-		Msg("wallet key created")
-
-	return key, nil
+		Str("status", key.Status.String())
+	for i := 0; i+1 < len(fields); i += 2 {
+		event = event.Str(fields[i], fields[i+1])
+	}
+	event.Msg(message)
 }
 
-// GetRoleKeys returns all keys of own single or pool role, e.g. executors. Deposit keys are looked up by external_ref.
 func (s *Service) GetRoleKeys(ctx context.Context, params GetRoleKeyParams) ([]WalletKey, error) {
 	role, err := s.repo.GetRole(ctx, s.txm.GetPool(), params.Service, params.Purpose, params.Label, params.Network)
 	if err != nil {
@@ -331,7 +533,6 @@ func (s *Service) GetRoleKeys(ctx context.Context, params GetRoleKeyParams) ([]W
 	return keys, nil
 }
 
-// GetRoleKey returns active key of single role, e.g. gas station of service.
 func (s *Service) GetRoleKey(ctx context.Context, params GetRoleKeyParams) (*WalletKey, error) {
 	role, err := s.repo.GetRole(ctx, s.txm.GetPool(), params.Service, params.Purpose, params.Label, params.Network)
 	if err != nil {
@@ -354,7 +555,7 @@ func (s *Service) GetRoleKey(ctx context.Context, params GetRoleKeyParams) (*Wal
 
 func isSigningAllowed(status KeyStatus) bool {
 	switch status {
-	case KeyStatusActive, KeyStatusRotating:
+	case KeyStatusActive, KeyStatusRotating, KeyStatusPending:
 		return true
 	}
 
@@ -382,7 +583,7 @@ func (s *Service) UseSigningKey(
 		return ErrKeyNotActive
 	}
 
-	// check runs before decryption: denied tx never touches private key
+	// before decryption: denied tx never touches private key
 	if err := check(key); err != nil {
 		return err
 	}
@@ -396,7 +597,6 @@ func (s *Service) UseSigningKey(
 	return fn(key, privateKey)
 }
 
-// encryptPrivateKey encrypts private key with a new DEK and DEK with KEK.
 func (s *Service) encryptPrivateKey(privateKey []byte) ([]byte, []byte, error) {
 	dek := make([]byte, dekSize)
 	if _, err := rand.Read(dek); err != nil {
@@ -418,8 +618,7 @@ func (s *Service) encryptPrivateKey(privateKey []byte) ([]byte, []byte, error) {
 	return keyCipher, dekCipher, nil
 }
 
-// decryptPrivateKey decrypts DEK with KEK and private key with DEK.
-// Caller must clear the returned private key after use.
+// Caller must clear the returned private key.
 func (s *Service) decryptPrivateKey(key *WalletKey) ([]byte, error) {
 	if key.KEKVersion != s.kekVersion {
 		return nil, fmt.Errorf("unknown kek version %d", key.KEKVersion)

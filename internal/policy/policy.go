@@ -47,10 +47,8 @@ type Policy struct {
 	Rules   []Rule `json:"rules"`
 }
 
-// IsInternal reports whether address is a key of the same service and network; purpose "" - any purpose.
 type IsInternal func(address, purpose string) (bool, error)
 
-// Parse validates policy of role in network and normalizes addresses. Empty or {} policy denies everything.
 func Parse(raw json.RawMessage, network constants.Network) (*Policy, error) {
 	if len(bytes.TrimSpace(raw)) == 0 || bytes.Equal(bytes.TrimSpace(raw), []byte("{}")) {
 		return &Policy{Version: version, Rules: []Rule{}}, nil
@@ -80,7 +78,6 @@ func Parse(raw json.RawMessage, network constants.Network) (*Policy, error) {
 	return p, nil
 }
 
-// JSON returns normalized policy for storage.
 func (p *Policy) JSON() json.RawMessage {
 	data, _ := json.Marshal(p)
 	return data
@@ -161,7 +158,6 @@ func (r *Rule) compile(network constants.Network) error {
 	return nil
 }
 
-// NormalizeAddress validates address for network: checksum hex for ethereum and arbitrum, base58 for tron.
 func NormalizeAddress(network constants.Network, address string) (string, error) {
 	switch network {
 	case constants.NetworkEthereum, constants.NetworkArbitrum:
@@ -182,7 +178,6 @@ func NormalizeAddress(network constants.Network, address string) (string, error)
 	}
 }
 
-// Allow returns index of first rule matching operation. Policy without matching rule denies operation.
 func (p *Policy) Allow(op Operation, isInternal IsInternal) (int, bool, error) {
 	for i := range p.Rules {
 		ok, err := p.Rules[i].match(op, isInternal)
@@ -222,7 +217,6 @@ func (r *Rule) match(op Operation, isInternal IsInternal) (bool, error) {
 	return r.matchTo(op.To, isInternal)
 }
 
-// matchTo checks plain values first and asks storage about internal addresses only if needed.
 func (r *Rule) matchTo(to string, isInternal IsInternal) (bool, error) {
 	for _, allowed := range r.To {
 		if allowed == toAny || allowed == to {

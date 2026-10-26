@@ -10,7 +10,6 @@ const (
 	OpContractCall Op = "contract_call" // any other contract call
 )
 
-// Operation is what tx does, decoded by network signer. Addresses are normalized (see NormalizeAddress).
 type Operation struct {
 	Op       Op
 	From     string   // tron: owner_address; "" for ethereum, sender is the signing key

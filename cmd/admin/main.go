@@ -72,6 +72,18 @@ Keys:
       -external-ref <ref>
       -limit <n>              default 100, max 1000
 
+  rotate-key              start rotation: create pending replacement of active key, print its address
+      -id <key_id>            old key keeps working and may send its funds to replacement
+
+  activate-key            activate pending key, key replaced by it becomes rotating
+      -id <key_id>
+
+  revoke-key              forbid signing forever, revoking pending key cancels rotation
+      -id <key_id>
+
+  disable-key / enable-key  stop signing with active key until enable
+      -id <key_id>
+
   import-key              import existing private key (hex) read from stdin
       -role <role_id>
       -alias <name>
@@ -86,6 +98,7 @@ Examples:
   wallet-admin create-key -role <role_id>
   wallet-admin list-keys -service exchange -purpose executor -network ethereum -status active
   wallet-admin import-key -role <role_id>    then paste key and press Enter
+  wallet-admin rotate-key -id <key_id>       then fund replacement and activate-key -id <new_key_id>
 `
 
 func main() {
@@ -113,6 +126,8 @@ func main() {
 		setPolicy(os.Args[2:])
 	case "list-keys":
 		listKeys(os.Args[2:])
+	case "rotate-key", "activate-key", "revoke-key", "disable-key", "enable-key":
+		keyAction(os.Args[1], os.Args[2:])
 	case "create-key":
 		createKey(os.Args[2:], false)
 	case "import-key":
@@ -175,7 +190,7 @@ func createServiceClient(args []string) {
 	fmt.Printf("service:            %s\n", client.Service)
 	fmt.Printf("service_client_id:  %s\n", client.ID)
 	fmt.Printf("X-Service-Key:      %s\n", key)
-	fmt.Println("сохраните ключ сейчас: в базе хранится только его хэш")
+	fmt.Println("save the key now: only its hash is stored")
 }
 
 func rotateServiceClient(args []string) {
@@ -199,7 +214,7 @@ func rotateServiceClient(args []string) {
 	fmt.Printf("service_client_id:  %s\n", client.ID)
 	fmt.Printf("X-Service-Key:      %s\n", key)
 	fmt.Printf("old key %s works until %s UTC\n", old.ID, old.ExpiresAt.Format(time.DateTime))
-	fmt.Println("сохраните ключ сейчас: в базе хранится только его хэш")
+	fmt.Println("save the key now: only its hash is stored")
 }
 
 func revokeServiceClient(args []string) {
@@ -378,7 +393,6 @@ func listKeys(args []string) {
 	a := newAdmin(ctx)
 	defer a.pool.Close()
 
-	// filter only by flags that are set: '' is a valid label
 	filter := keystorage.ListKeysFilter{Limit: *limit}
 	fs.Visit(func(f *flag.Flag) {
 		switch f.Name {
@@ -415,18 +429,59 @@ func listKeys(args []string) {
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "KEY_ID\tSERVICE\tPURPOSE\tLABEL\tNETWORK\tKIND\tADDRESS\tSTATUS\tEXTERNAL_REF\tCREATED_AT")
+	fmt.Fprintln(w, "KEY_ID\tSERVICE\tPURPOSE\tLABEL\tNETWORK\tKIND\tADDRESS\tSTATUS\tREPLACED_BY\tEXTERNAL_REF\tCREATED_AT")
 	for _, key := range keys {
 		externalRef := ""
 		if key.ExternalRef != nil {
 			externalRef = *key.ExternalRef
 		}
 
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+		replacedBy := ""
+		if key.ReplacedBy != nil {
+			replacedBy = key.ReplacedBy.String()
+		}
+
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			key.ID, key.Role.Service, key.Role.Purpose, key.Role.Label, key.Network, key.Role.Kind,
-			key.Address, key.Status, externalRef, key.CreatedAt.Format(time.DateTime))
+			key.Address, key.Status, replacedBy, externalRef, key.CreatedAt.Format(time.DateTime))
 	}
 	_ = w.Flush()
+}
+
+func keyAction(command string, args []string) {
+	fs := flag.NewFlagSet(command, flag.ExitOnError)
+	id := fs.String("id", "", "key id")
+	_ = fs.Parse(args)
+
+	ctx := context.Background()
+	a := newAdmin(ctx)
+	defer a.pool.Close()
+
+	keyID, err := uuid.Parse(*id)
+	if err != nil {
+		a.log.Fatal().Str("id", *id).Msg("invalid key id")
+	}
+
+	srv := a.keyStorage()
+	do := map[string]func(context.Context, uuid.UUID) (*keystorage.WalletKey, error){
+		"rotate-key":   srv.RotateKey,
+		"activate-key": srv.ActivateKey,
+		"revoke-key":   srv.RevokeKey,
+		"disable-key":  srv.DisableKey,
+		"enable-key":   srv.EnableKey,
+	}[command]
+
+	key, err := do(ctx, keyID)
+	if err != nil {
+		a.log.Fatal().Err(err).Msg("failed to " + command)
+	}
+
+	fmt.Printf("key_id:   %s\n", key.ID)
+	fmt.Printf("address:  %s\n", key.Address)
+	fmt.Printf("status:   %s\n", key.Status)
+	if command == "rotate-key" {
+		fmt.Printf("replaces: %s, it may send its funds to this address; then activate-key -id %s\n", keyID, key.ID)
+	}
 }
 
 func createKey(args []string, imported bool) {
@@ -447,7 +502,7 @@ func createKey(args []string, imported bool) {
 
 	var key *keystorage.WalletKey
 	if imported {
-		fmt.Fprintln(os.Stderr, "введите приватный ключ (hex) и нажмите Enter:")
+		fmt.Fprintln(os.Stderr, "enter private key (hex) and press Enter:")
 		scanner := bufio.NewScanner(os.Stdin)
 		if !scanner.Scan() {
 			a.log.Fatal().Msg("failed to read private key from stdin")

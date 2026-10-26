@@ -13,7 +13,6 @@ import (
 	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/infra/logger"
 )
 
-// repoStub keeps clients in memory and checks one primary key per service like db index.
 type repoStub struct {
 	clients []*ServiceClient
 }
@@ -177,7 +176,6 @@ func TestRotateClient(t *testing.T) {
 		t.Fatalf("expired old key: err = %v", err)
 	}
 
-	// rotation chain: new key becomes old one
 	if _, _, second, err := srv.RotateClient(ctx, "exchange", 0); err != nil || second.ID != client.ID {
 		t.Fatalf("second rotation: old = %+v, err = %v", second, err)
 	}
@@ -223,7 +221,6 @@ func TestRevokeAndListClients(t *testing.T) {
 		t.Fatalf("revoke twice: err = %v", err)
 	}
 
-	// revoked primary frees the slot for a new key
 	if _, _, err := srv.CreateClient(ctx, "exchange"); err != nil {
 		t.Fatalf("create after revoke: err = %v", err)
 	}

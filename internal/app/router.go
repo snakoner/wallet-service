@@ -45,6 +45,11 @@ func NewRouter(
 				admin.POST("/roles/:id/keys", handlers.Admin.CreateKey)
 				admin.GET("/roles/:id/keys", handlers.Admin.ListRoleKeys)
 				admin.GET("/keys", handlers.Admin.ListKeys)
+				admin.POST("/keys/:id/rotate", handlers.Admin.RotateKey)
+				admin.POST("/keys/:id/activate", handlers.Admin.ActivateKey)
+				admin.POST("/keys/:id/revoke", handlers.Admin.RevokeKey)
+				admin.POST("/keys/:id/disable", handlers.Admin.DisableKey)
+				admin.POST("/keys/:id/enable", handlers.Admin.EnableKey)
 			}
 		}
 

@@ -18,6 +18,7 @@ import (
 )
 
 type adminServiceStub struct {
+	keyID      uuid.UUID
 	keysFilter ListKeysFilter
 	policy     json.RawMessage
 	roleParams CreateRoleParams
@@ -49,6 +50,34 @@ func (s *adminServiceStub) ListKeys(_ context.Context, filter ListKeysFilter) ([
 		return nil, s.err
 	}
 	return []WalletKey{{ID: uuid.New(), Role: Role{Service: "exchange", Purpose: "executor", Kind: RoleKindPool}, Network: constants.NetworkEthereum, Address: "0xA", Status: KeyStatusActive, KeyCipher: []byte("secret")}}, nil
+}
+
+func (s *adminServiceStub) keyAction(keyID uuid.UUID, status KeyStatus) (*WalletKey, error) {
+	s.keyID = keyID
+	if s.err != nil {
+		return nil, s.err
+	}
+	return &WalletKey{ID: keyID, Role: Role{Service: "exchange", Kind: RoleKindSingle}, Network: constants.NetworkEthereum, Address: "0xA", Status: status, KeyCipher: []byte("secret")}, nil
+}
+
+func (s *adminServiceStub) RotateKey(_ context.Context, id uuid.UUID) (*WalletKey, error) {
+	return s.keyAction(id, KeyStatusPending)
+}
+
+func (s *adminServiceStub) ActivateKey(_ context.Context, id uuid.UUID) (*WalletKey, error) {
+	return s.keyAction(id, KeyStatusActive)
+}
+
+func (s *adminServiceStub) RevokeKey(_ context.Context, id uuid.UUID) (*WalletKey, error) {
+	return s.keyAction(id, KeyStatusRevoked)
+}
+
+func (s *adminServiceStub) DisableKey(_ context.Context, id uuid.UUID) (*WalletKey, error) {
+	return s.keyAction(id, KeyStatusDisabled)
+}
+
+func (s *adminServiceStub) EnableKey(_ context.Context, id uuid.UUID) (*WalletKey, error) {
+	return s.keyAction(id, KeyStatusActive)
 }
 
 func (s *adminServiceStub) ListRoles(_ context.Context, service string) ([]Role, error) {
@@ -86,6 +115,11 @@ func doAdmin(t *testing.T, svc *adminServiceStub, method, path, body string) *ht
 	r.POST("/api/v1/admin/roles/:id/keys", h.CreateKey)
 	r.GET("/api/v1/admin/roles/:id/keys", h.ListRoleKeys)
 	r.GET("/api/v1/admin/keys", h.ListKeys)
+	r.POST("/api/v1/admin/keys/:id/rotate", h.RotateKey)
+	r.POST("/api/v1/admin/keys/:id/activate", h.ActivateKey)
+	r.POST("/api/v1/admin/keys/:id/revoke", h.RevokeKey)
+	r.POST("/api/v1/admin/keys/:id/disable", h.DisableKey)
+	r.POST("/api/v1/admin/keys/:id/enable", h.EnableKey)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest(method, path, strings.NewReader(body)))
 	return w
@@ -211,5 +245,25 @@ func TestAdminListKeys(t *testing.T) {
 				t.Fatalf("code = %d, body = %s", w.Code, w.Body)
 			}
 		})
+	}
+}
+
+func TestAdminKeyActions(t *testing.T) {
+	keyID := uuid.New()
+	for action, status := range map[string]string{"rotate": "pending", "activate": "active", "revoke": "revoked", "disable": "disabled", "enable": "active"} {
+		t.Run(action, func(t *testing.T) {
+			svc := &adminServiceStub{}
+			w := doAdmin(t, svc, http.MethodPost, "/api/v1/admin/keys/"+keyID.String()+"/"+action, "")
+			if w.Code != http.StatusOK || svc.keyID != keyID || !strings.Contains(w.Body.String(), `"status":"`+status+`"`) || strings.Contains(w.Body.String(), "secret") {
+				t.Fatalf("code = %d, body = %s", w.Code, w.Body)
+			}
+		})
+	}
+
+	if w := doAdmin(t, &adminServiceStub{}, http.MethodPost, "/api/v1/admin/keys/abc/rotate", ""); w.Code != http.StatusNotFound {
+		t.Fatalf("bad id: code = %d", w.Code)
+	}
+	if w := doAdmin(t, &adminServiceStub{err: ErrRotationInProgress}, http.MethodPost, "/api/v1/admin/keys/"+keyID.String()+"/rotate", ""); w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "ROTATION_IN_PROGRESS") {
+		t.Fatalf("in progress: code = %d, body = %s", w.Code, w.Body)
 	}
 }

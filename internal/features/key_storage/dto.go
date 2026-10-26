@@ -31,7 +31,6 @@ type ImportKeyParams struct {
 	ExternalRef *string
 }
 
-// ListKeysFilter is admin filter of keys, nil fields are not filtered.
 type ListKeysFilter struct {
 	Service     *string
 	Purpose     *string
@@ -65,30 +64,32 @@ type GetRoleKeyQuery struct {
 }
 
 type KeyResponse struct {
-	ID        uuid.UUID `json:"id"`
-	Service   string    `json:"service"`
-	Purpose   string    `json:"purpose"`
-	Label     string    `json:"label"`
-	Network   string    `json:"network"`
-	Kind      string    `json:"kind"`
-	Alias     *string   `json:"alias,omitempty"`
-	Address   string    `json:"address"`
-	Status    string    `json:"status"`
-	CreatedAt time.Time `json:"created_at"`
+	ID         uuid.UUID  `json:"id"`
+	Service    string     `json:"service"`
+	Purpose    string     `json:"purpose"`
+	Label      string     `json:"label"`
+	Network    string     `json:"network"`
+	Kind       string     `json:"kind"`
+	Alias      *string    `json:"alias,omitempty"`
+	Address    string     `json:"address"`
+	Status     string     `json:"status"`
+	ReplacedBy *uuid.UUID `json:"replaced_by,omitempty"` // new key after rotation
+	CreatedAt  time.Time  `json:"created_at"`
 }
 
 func NewKeyResponse(key *WalletKey) KeyResponse {
 	return KeyResponse{
-		ID:        key.ID,
-		Service:   key.Role.Service,
-		Purpose:   key.Role.Purpose,
-		Label:     key.Role.Label,
-		Network:   key.Network.String(),
-		Kind:      key.Role.Kind.String(),
-		Alias:     key.Alias,
-		Address:   key.Address,
-		Status:    key.Status.String(),
-		CreatedAt: key.CreatedAt,
+		ID:         key.ID,
+		Service:    key.Role.Service,
+		Purpose:    key.Role.Purpose,
+		Label:      key.Role.Label,
+		Network:    key.Network.String(),
+		Kind:       key.Role.Kind.String(),
+		Alias:      key.Alias,
+		Address:    key.Address,
+		Status:     key.Status.String(),
+		ReplacedBy: key.ReplacedBy,
+		CreatedAt:  key.CreatedAt,
 	}
 }
 

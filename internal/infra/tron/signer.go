@@ -59,8 +59,7 @@ func NewSigner() *Signer {
 	return &Signer{}
 }
 
-// DecodeTx checks raw_data_hex of tx built by node and returns what it does.
-// Only TransferContract and TriggerSmartContract are supported: other types can change account permissions, freeze, vote.
+// Only TransferContract and TriggerSmartContract: other types can change account permissions.
 func (s *Signer) DecodeTx(rawTx []byte) (*policy.Operation, error) {
 	raw, err := parseMessage(rawTx)
 	if err != nil {
@@ -144,7 +143,6 @@ type protoField struct {
 	bytes  []byte
 }
 
-// parseMessage reads varint and bytes fields of protobuf message, other wire types are skipped.
 func parseMessage(b []byte) (map[protowire.Number][]protoField, error) {
 	fields := map[protowire.Number][]protoField{}
 	for len(b) > 0 {

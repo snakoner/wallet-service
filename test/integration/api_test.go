@@ -62,7 +62,6 @@ func TestRoleKey(t *testing.T) {
 		t.Fatalf("status = %d, key = %+v, error = %+v", status, key, res.Error)
 	}
 
-	// other service does not see role
 	other := newEnv(t)
 	if status, res := other.call(http.MethodGet, "/api/v1/roles/gas_station/key?network=ethereum", other.apiKey, nil, nil); status != http.StatusNotFound || res.Error.Code != "ROLE_NOT_FOUND" {
 		t.Fatalf("other service: status = %d, error = %+v", status, res.Error)
@@ -77,7 +76,6 @@ func TestRoleKey(t *testing.T) {
 	}
 }
 
-// TestSignEthereumBroadcast signs native transfer of gas station to own deposit wallet and sends it to anvil.
 func TestSignEthereumBroadcast(t *testing.T) {
 	e := newEnv(t)
 	gas := e.key(e.role("gas_station", constants.NetworkEthereum, keystorage.RoleKindSingle, gasStationPolicy), "")
@@ -168,7 +166,6 @@ func TestSignRejected(t *testing.T) {
 		})
 	}
 
-	// key of other service is invisible
 	other := newEnv(t)
 	if status, res, _ := other.sign(gas.ID, "ethereum", toDeposit); status != http.StatusNotFound || res.Error.Code != "KEY_NOT_FOUND" {
 		t.Fatalf("other service: status = %d, error = %+v", status, res.Error)
@@ -180,7 +177,6 @@ func TestSignRejected(t *testing.T) {
 	}
 }
 
-// TestSignTron checks offline tron signature: signer recovered from signature is the key address.
 func TestSignTron(t *testing.T) {
 	e := newEnv(t)
 	gas := e.key(e.role("gas_station", constants.NetworkTron, keystorage.RoleKindSingle, `{"version":1,"rules":[{"op":"native","to":["*"]}]}`), "")
@@ -215,7 +211,6 @@ func TestSignTron(t *testing.T) {
 		t.Fatalf("signer = %s, err = %v, want %s", signer, err, gas.Address)
 	}
 
-	// tx of other owner is rejected before policy and decryption
 	_, stranger, _ := tronlib.GenerateAddress()
 	if status, res, _ := e.sign(gas.ID, "tron", tronTransferRaw(t, stranger, recipient, 1, time.Now().Add(time.Minute))); status != http.StatusBadRequest || res.Error.Code != "INVALID_TRANSACTION" {
 		t.Fatalf("other owner: status = %d, error = %+v", status, res.Error)
@@ -226,7 +221,6 @@ func TestSignTron(t *testing.T) {
 	}
 }
 
-// tronTransferRaw builds raw_data of TransferContract like node /wallet/createtransaction does.
 func tronTransferRaw(t *testing.T, owner, to string, amount uint64, expiration time.Time) []byte {
 	t.Helper()
 	address := func(base58 string) []byte {

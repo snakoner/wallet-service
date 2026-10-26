@@ -1,7 +1,5 @@
 //go:build integration
 
-// Package integration tests wallet service end to end: app, postgres and anvil of docker-compose.test.yml.
-// Run with make test-integration.
 package integration
 
 import (
@@ -32,7 +30,7 @@ import (
 	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/infra/logger"
 )
 
-// anvilFunderKey is the well-known private key of anvil dev account 0, prefunded with 10000 ETH.
+// anvil dev account 0
 const anvilFunderKey = "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 
 var anvilChainID = big.NewInt(31337)
@@ -44,8 +42,8 @@ type env struct {
 	pool    *pgxpool.Pool
 	eth     *ethclient.Client
 	http    *http.Client
-	service string // unique service of test, isolates its rows
-	apiKey  string // X-Service-Key of service
+	service string
+	apiKey  string
 	ctx     context.Context
 	tb      testing.TB
 }
@@ -131,7 +129,6 @@ type apiResponse struct {
 	} `json:"error"`
 }
 
-// call sends request with given X-Service-Key ("" - without header) and decodes data into out.
 func (e *env) call(method, path, apiKey string, body any, out any) (int, apiResponse) {
 	e.tb.Helper()
 	var reader io.Reader
@@ -184,7 +181,6 @@ func (e *env) sign(keyID uuid.UUID, network string, rawTx []byte) (int, apiRespo
 	return status, res, out
 }
 
-// fund sends ETH from anvil dev account, so the key can pay for its transactions.
 func (e *env) fund(address string, wei *big.Int) {
 	e.tb.Helper()
 	funder, err := crypto.HexToECDSA(anvilFunderKey)
@@ -207,7 +203,6 @@ func (e *env) fund(address string, wei *big.Int) {
 	e.broadcast(tx)
 }
 
-// unsignedTx builds native transfer: EIP-1559 when dynamic, legacy otherwise. Gas is estimated: new accounts cost more than 21000.
 func (e *env) unsignedTx(nonce uint64, to common.Address, value *big.Int, dynamic bool) *types.Transaction {
 	e.tb.Helper()
 	gas, err := e.eth.EstimateGas(e.ctx, ethereum.CallMsg{To: &to, Value: value})
@@ -235,7 +230,6 @@ func (e *env) unsignedTx(nonce uint64, to common.Address, value *big.Int, dynami
 	})
 }
 
-// broadcast sends signed tx to anvil and waits for successful receipt.
 func (e *env) broadcast(tx *types.Transaction) *types.Receipt {
 	e.tb.Helper()
 	if err := e.eth.SendTransaction(e.ctx, tx); err != nil {

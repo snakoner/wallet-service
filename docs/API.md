@@ -33,7 +33,7 @@
   - `pool` — несколько взаимозаменяемых ключей (executor'ы);
   - `deposit` — ключ на каждый `external_ref` (кошелёк под заказ).
 - **policy** роли — правила подписи, проверяются при каждой подписи. Формат — [POLICY.md](POLICY.md). Без правил (`{}`, по умолчанию) роль **ничего не подписывает**.
-- **Статусы ключа**: `active`, `rotating`, `pending`, `disabled`, `revoked`. Подписывают только `active` и `rotating`.
+- **Статусы ключа**: `active`, `rotating`, `pending`, `disabled`, `revoked`. Подписывают `active`, `pending` (подготовка ротации) и `rotating` (дописать начатое, вывести остатки). Ротация — раздел [Ротация ключей](#ротация-ключей).
 - Приватные ключи хранятся зашифрованными (envelope: DEK на ключ + KEK из `KEY_STORAGE_KEK`) и никогда не отдаются наружу.
 
 ## Ручки для сервисов
@@ -165,6 +165,48 @@ curl -s "http://localhost:8080/api/v1/admin/keys?service=exchange&purpose=execut
 
 Ошибки: `VALIDATION_FAILED` (400, неизвестные network/status, limit вне 1..1000).
 
+### Жизненный цикл ключа
+
+`POST /api/v1/admin/keys/{id}/rotate | activate | revoke | disable | enable` — тело не нужно, ответ — ключ (для `rotate` — новый замещающий ключ).
+
+| Действие | Из статуса | Что делает | Ошибки |
+|---|---|---|---|
+| `rotate` | `active` | создаёт замещающий ключ в `pending` в той же роли, у старого `replaced_by` | `INVALID_KEY_STATUS` (409), `ROTATION_IN_PROGRESS` (409), deposit-ключ — `INVALID_PARAMS` (400) |
+| `activate` | `pending` | замещающий → `active`, замещаемый → `rotating` (`rotated_at`), атомарно | `INVALID_KEY_STATUS`, `ACTIVE_KEY_EXISTS` (409) |
+| `revoke` | любой, кроме `revoked` | → `revoked` (`revoked_at`), подписывать больше нельзя. Отзыв `pending` отменяет ротацию: у старого ключа снимается `replaced_by` | `INVALID_KEY_STATUS` |
+| `disable` / `enable` | `active` ↔ `disabled` | временно запретить подпись | `INVALID_KEY_STATUS`, для single при другом активном — `ACTIVE_KEY_EXISTS` |
+
+`replaced_by` есть и в ответах сервисных ручек `/roles/{purpose}/key(s)`.
+
+## Ротация ключей
+
+Новый ключ — новый адрес, поэтому ротация идёт по шагам, без простоя сервисов:
+
+1. `rotate-key -id <A>` — создан `B` (`pending`). Сервисы по-прежнему получают `A` из `/roles/{purpose}/key`.
+2. Подготовка `B`: газ, роли в контрактах (`transferOwnership` от `A`, `acceptOwnership` от `B` — по политике роли).
+   **Правило ротации:** ключ с `replaced_by` может отправить `native` и `token` на адрес своего замещающего ключа, даже если политика роли это запрещает. Поэтому `B` можно пополнить прямо с `A`. Другие адреса для `A` по-прежнему закрыты политикой.
+3. `activate-key -id <B>` — `B` становится `active`, `A` — `rotating`. Сервисы при следующем запросе ключа получают `B`; `A` дописывает начатое.
+4. Вывести остатки `A` на `B` (то же правило ротации).
+5. `revoke-key -id <A>` — `A` больше не подписывает.
+
+Отмена до активации: `revoke-key -id <B>`.
+
+Для сервисов: не хранить `key_id` в конфиге, получать текущий ключ через `/roles/{purpose}/key` (можно кэшировать на минуту); на `409 KEY_NOT_ACTIVE` получить ключ заново и пересобрать транзакцию.
+
+- `single` (gas station, owner): полный цикл.
+- `pool` (executor'ы): тот же цикл для каждого ключа пула, остальные ключи работают.
+- `deposit`: не ротируются (ключ живёт один заказ).
+
+Пример для газового кошелька:
+
+```bash
+wallet-admin rotate-key -id <A>                        # B pending
+gas-station-send -to <B> -amount 0.05 -send            # пополнить B с A
+wallet-admin activate-key -id <B>
+gas-station-send -to <B> -amount <остаток> -send        # после переходного периода
+wallet-admin revoke-key -id <A>
+```
+
 ## Admin CLI (`wallet-admin`)
 
 Полная справка: `wallet-admin help`.
@@ -180,6 +222,7 @@ wallet-admin list-keys [-service exchange] [-purpose executor] [-label ""] [-net
 wallet-admin set-policy -role <role_id> -policy policy.json
 wallet-admin create-key -role <role_id> [-alias name] [-external-ref order-1]
 echo "<private key hex>" | wallet-admin import-key -role <role_id> [-alias name] [-external-ref order-1]
+wallet-admin rotate-key | activate-key | revoke-key | disable-key | enable-key -id <key_id>
 ```
 
 `import-key` — перенос существующих ключей из env сервисов. По HTTP импорта нет специально. В production admin API нет, политику там меняют только через `set-policy`.
@@ -215,7 +258,7 @@ make test-integration   # интеграционные: поднимает docke
 | Лимиты за период и проверка аргументов `contract_call` в политике | после аудита, см. [POLICY.md](POLICY.md) §7 |
 | Lease для pool-ролей (executor'ы) | шаг 3 |
 | Создание deposit-ключей сервисом через API, поиск по `external_ref` | шаг 4 |
-| Ротация ключей (`rotate` / `activate` / `revoke`), несколько KEK | шаг 5 |
+| Несколько KEK и перешифровка (`rewrap-keys`) | следующий шаг |
 | Go-клиент `pkg/client` для сервисов | шаг 6 |
 | Перевод atoken-exchange, cedex-retail, banknote на wallet-service | шаг 7 |
 | SSO-авторизация admin API | не начато |

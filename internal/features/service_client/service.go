@@ -37,8 +37,6 @@ func NewService(log *logger.Logger, repo repository, txm db.TxManager) *Service 
 	return &Service{log: log, repo: repo, txm: txm}
 }
 
-// CreateClient registers service and returns its X-Service-Key. The key is not stored and is shown only once.
-// Service with active key gets ErrServiceClientExists: key is changed by RotateClient.
 func (s *Service) CreateClient(ctx context.Context, service string) (string, *ServiceClient, error) {
 	service = strings.TrimSpace(service)
 	if service == "" {
@@ -62,8 +60,6 @@ func (s *Service) CreateClient(ctx context.Context, service string) (string, *Se
 	return key, client, nil
 }
 
-// RotateClient issues new key of service. Old key is accepted for grace period, so service can be redeployed
-// without downtime; grace 0 rejects old key at once.
 func (s *Service) RotateClient(ctx context.Context, service string, grace time.Duration) (string, *ServiceClient, *ServiceClient, error) {
 	service = strings.TrimSpace(service)
 	if service == "" {
@@ -85,7 +81,7 @@ func (s *Service) RotateClient(ctx context.Context, service string, grace time.D
 			return err
 		}
 
-		// old key stops being primary first, otherwise new key violates one primary per service
+		// old key stops being primary first, otherwise insert violates one primary per service
 		expiresAt := client.CreatedAt.Add(grace)
 		if err := s.repo.ExpireClient(ctx, tx, old.ID, expiresAt); err != nil {
 			return err
@@ -113,7 +109,6 @@ func (s *Service) RotateClient(ctx context.Context, service string, grace time.D
 	return key, client, old, nil
 }
 
-// RevokeClient rejects key at once, e.g. after leak.
 func (s *Service) RevokeClient(ctx context.Context, id uuid.UUID) error {
 	if err := s.repo.RevokeClient(ctx, s.txm.GetPool(), id, time.Now().UTC()); err != nil {
 		return err

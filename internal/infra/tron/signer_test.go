@@ -35,7 +35,6 @@ func newAddress(t *testing.T) string {
 	return address
 }
 
-// contractMsg builds protocol.Transaction.Contract with parameter packed into google.protobuf.Any.
 func contractMsg(contractType uint64, value []byte) []byte {
 	var any []byte
 	any = protowire.AppendTag(any, 1, protowire.BytesType) // type_url
@@ -88,7 +87,6 @@ func trc20Transfer(to []byte, amount int64) []byte {
 	return append(data, common.LeftPadBytes(big.NewInt(amount).Bytes(), 32)...)
 }
 
-// buildRawTx builds protocol.Transaction.raw with given expiration and contracts.
 func buildRawTx(expiration time.Time, contracts ...[]byte) []byte {
 	var raw []byte
 	raw = protowire.AppendTag(raw, 1, protowire.BytesType) // ref_block_bytes

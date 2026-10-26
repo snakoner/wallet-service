@@ -26,7 +26,7 @@ type keyProvider interface {
 }
 
 type TxSigner interface {
-	DecodeTx(rawTx []byte) (*policy.Operation, error) // validates tx: format, chain id, expiration
+	DecodeTx(rawTx []byte) (*policy.Operation, error)
 	SignTx(rawTx []byte, privateKey []byte) ([]byte, string, error)
 }
 
@@ -44,7 +44,6 @@ func NewService(log *logger.Logger, keys keyProvider, signers map[constants.Netw
 	}
 }
 
-// SignTransaction signs unsigned tx with service key. Tx is sent by the caller.
 func (s *Service) SignTransaction(ctx context.Context, params SignTransactionParams) (*SignedTransaction, error) {
 	signer, ok := s.signers[params.Network]
 	if !ok {
@@ -95,10 +94,16 @@ func (s *Service) SignTransaction(ctx context.Context, params SignTransactionPar
 	return &signed, nil
 }
 
-// checkPolicy allows operation if tx is from the key and some rule of key role matches it. Returns matched rule index.
+const replacementRule = -1
+
 func (s *Service) checkPolicy(ctx context.Context, key *keystorage.WalletKey, op *policy.Operation) (int, error) {
 	if op.From != "" && op.From != key.Address {
 		return 0, ErrInvalidTransaction.WithMessage("tx owner is not the key address")
+	}
+
+	// replaced key may send funds to its replacement regardless of role policy
+	if key.ReplacementAddress != nil && (op.Op == policy.OpNative || op.Op == policy.OpToken) && op.To == *key.ReplacementAddress {
+		return replacementRule, nil
 	}
 
 	rolePolicy, err := policy.Parse(key.Role.Policy, key.Network)

@@ -16,7 +16,6 @@ func NewSigner(chainID *big.Int) *Signer {
 	return &Signer{chainID: chainID}
 }
 
-// DecodeTx checks tx and returns what it does: native transfer, erc20 transfer or contract call.
 func (s *Signer) DecodeTx(rawTx []byte) (*policy.Operation, error) {
 	info, err := DecodeTx(rawTx)
 	if err != nil {

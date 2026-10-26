@@ -88,7 +88,6 @@ func TestIntegrationServiceClientLifecycle(t *testing.T) {
 	}
 }
 
-// Concurrent rotations must leave exactly one primary key: the losers see that primary changed and fail.
 func TestIntegrationConcurrentRotate(t *testing.T) {
 	srv := newIntegrationService(t)
 	ctx := context.Background()

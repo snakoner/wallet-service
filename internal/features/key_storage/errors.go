@@ -12,4 +12,6 @@ var (
 	ErrKeyExists          = apperror.Conflict("KEY_EXISTS", "key already exists")
 	ErrRoleNotFound       = apperror.NotFound("ROLE_NOT_FOUND", "role not found")
 	ErrRoleExists         = apperror.Conflict("ROLE_EXISTS", "role already exists")
+	ErrInvalidKeyStatus   = apperror.Conflict("INVALID_KEY_STATUS", "operation is not allowed in current key status")
+	ErrRotationInProgress = apperror.Conflict("ROTATION_IN_PROGRESS", "key already has pending replacement")
 )

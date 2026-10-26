@@ -19,9 +19,13 @@ type AdminService interface {
 	CreateKey(ctx context.Context, params CreateKeyParams) (*WalletKey, error)
 	ListRoleKeys(ctx context.Context, roleID uuid.UUID) ([]WalletKey, error)
 	ListKeys(ctx context.Context, filter ListKeysFilter) ([]WalletKey, error)
+	RotateKey(ctx context.Context, keyID uuid.UUID) (*WalletKey, error)
+	ActivateKey(ctx context.Context, keyID uuid.UUID) (*WalletKey, error)
+	RevokeKey(ctx context.Context, keyID uuid.UUID) (*WalletKey, error)
+	DisableKey(ctx context.Context, keyID uuid.UUID) (*WalletKey, error)
+	EnableKey(ctx context.Context, keyID uuid.UUID) (*WalletKey, error)
 }
 
-// AdminHandler manages roles and keys of all services. Private keys are never returned.
 type AdminHandler struct {
 	service AdminService
 	log     *logger.Logger
@@ -240,4 +244,88 @@ func (h *AdminHandler) ListKeys(c *gin.Context) {
 	}
 
 	httputil.OK(c, NewKeysResponse(keys))
+}
+
+// RotateKey godoc
+// @Summary     Start rotation: create pending replacement of active key
+// @Description Old key keeps working and may send its funds to replacement. Switch keys with activate.
+// @Tags        admin
+// @Produce     json
+// @Param       id path string true "Active key id"
+// @Success     200 {object} httputil.Response{data=key_storage.KeyResponse} "Replacement key"
+// @Failure     400 {object} httputil.ErrorResponse
+// @Failure     404 {object} httputil.ErrorResponse
+// @Failure     409 {object} httputil.ErrorResponse
+// @Router      /api/v1/admin/keys/{id}/rotate [post]
+func (h *AdminHandler) RotateKey(c *gin.Context) {
+	h.keyAction(c, "rotate", h.service.RotateKey)
+}
+
+// ActivateKey godoc
+// @Summary     Activate pending key, key replaced by it becomes rotating
+// @Tags        admin
+// @Produce     json
+// @Param       id path string true "Pending key id"
+// @Success     200 {object} httputil.Response{data=key_storage.KeyResponse}
+// @Failure     404 {object} httputil.ErrorResponse
+// @Failure     409 {object} httputil.ErrorResponse
+// @Router      /api/v1/admin/keys/{id}/activate [post]
+func (h *AdminHandler) ActivateKey(c *gin.Context) {
+	h.keyAction(c, "activate", h.service.ActivateKey)
+}
+
+// RevokeKey godoc
+// @Summary     Revoke key forever, revoking pending key cancels rotation
+// @Tags        admin
+// @Produce     json
+// @Param       id path string true "Key id"
+// @Success     200 {object} httputil.Response{data=key_storage.KeyResponse}
+// @Failure     404 {object} httputil.ErrorResponse
+// @Failure     409 {object} httputil.ErrorResponse
+// @Router      /api/v1/admin/keys/{id}/revoke [post]
+func (h *AdminHandler) RevokeKey(c *gin.Context) {
+	h.keyAction(c, "revoke", h.service.RevokeKey)
+}
+
+// DisableKey godoc
+// @Summary     Disable active key until enable
+// @Tags        admin
+// @Produce     json
+// @Param       id path string true "Active key id"
+// @Success     200 {object} httputil.Response{data=key_storage.KeyResponse}
+// @Failure     404 {object} httputil.ErrorResponse
+// @Failure     409 {object} httputil.ErrorResponse
+// @Router      /api/v1/admin/keys/{id}/disable [post]
+func (h *AdminHandler) DisableKey(c *gin.Context) {
+	h.keyAction(c, "disable", h.service.DisableKey)
+}
+
+// EnableKey godoc
+// @Summary     Enable disabled key
+// @Tags        admin
+// @Produce     json
+// @Param       id path string true "Disabled key id"
+// @Success     200 {object} httputil.Response{data=key_storage.KeyResponse}
+// @Failure     404 {object} httputil.ErrorResponse
+// @Failure     409 {object} httputil.ErrorResponse
+// @Router      /api/v1/admin/keys/{id}/enable [post]
+func (h *AdminHandler) EnableKey(c *gin.Context) {
+	h.keyAction(c, "enable", h.service.EnableKey)
+}
+
+func (h *AdminHandler) keyAction(c *gin.Context, action string, do func(ctx context.Context, keyID uuid.UUID) (*WalletKey, error)) {
+	keyID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		httputil.Fail(c, ErrKeyNotFound)
+		return
+	}
+
+	key, err := do(c.Request.Context(), keyID)
+	if err != nil {
+		h.log.Error().Err(err).Str("key_id", keyID.String()).Msg("admin " + action + " key")
+		httputil.Fail(c, err)
+		return
+	}
+
+	httputil.OK(c, NewKeyResponse(key))
 }

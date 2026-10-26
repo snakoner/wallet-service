@@ -9,6 +9,7 @@ import (
 	"os"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -20,7 +21,6 @@ import (
 	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/infra/logger"
 )
 
-// openTestPool connects to postgres of docker-compose.test.yml, see make test-integration.
 func openTestPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	dsn := os.Getenv("WALLET_TEST_DATABASE_URL")
@@ -49,7 +49,6 @@ func newIntegrationService(t *testing.T) (*Service, *pgxpool.Pool) {
 	return srv, pool
 }
 
-// uniqueService isolates rows of each test in shared database.
 func uniqueService() string {
 	return "it-" + uuid.NewString()[:8]
 }
@@ -73,7 +72,6 @@ func TestIntegrationRoleUnique(t *testing.T) {
 		t.Fatalf("duplicate role: err = %v", err)
 	}
 
-	// same purpose in other network or with other label is another role
 	if _, err := srv.CreateRole(context.Background(), CreateRoleParams{Service: service, Purpose: "gas_station", Network: constants.NetworkTron, Kind: RoleKindSingle}); err != nil {
 		t.Fatalf("other network: err = %v", err)
 	}
@@ -282,5 +280,69 @@ func TestIntegrationUpdatePolicy(t *testing.T) {
 	}
 	if _, err := srv.UpdatePolicy(ctx, uuid.New(), []byte(`{}`)); !errors.Is(err, ErrRoleNotFound) {
 		t.Fatalf("unknown role: err = %v", err)
+	}
+}
+
+func TestIntegrationRotation(t *testing.T) {
+	srv, pool := newIntegrationService(t)
+	ctx := context.Background()
+
+	role := createIntegrationRole(t, srv, uniqueService(), "gas_station", constants.NetworkEthereum, RoleKindSingle, "")
+	old, err := srv.CreateKey(ctx, CreateKeyParams{RoleID: role.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const workers = 10
+	var (
+		wg           sync.WaitGroup
+		mu           sync.Mutex
+		replacements []*WalletKey
+	)
+	for range workers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			key, err := srv.RotateKey(ctx, old.ID)
+			mu.Lock()
+			defer mu.Unlock()
+			switch {
+			case err == nil:
+				replacements = append(replacements, key)
+			case errors.Is(err, ErrRotationInProgress):
+			default:
+				t.Errorf("unexpected error: %v", err)
+			}
+		}()
+	}
+	wg.Wait()
+	if len(replacements) != 1 {
+		t.Fatalf("replacements = %d", len(replacements))
+	}
+	replacement := replacements[0]
+
+	if _, err := srv.ActivateKey(ctx, replacement.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := srv.RevokeKey(ctx, old.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	var (
+		status               KeyStatus
+		replacedBy           *uuid.UUID
+		rotatedAt, revokedAt *time.Time
+	)
+	if err := pool.QueryRow(ctx, `SELECT status, replaced_by, rotated_at, revoked_at FROM wallet_keys WHERE id = $1`, old.ID).
+		Scan(&status, &replacedBy, &rotatedAt, &revokedAt); err != nil {
+		t.Fatal(err)
+	}
+	if status != KeyStatusRevoked || replacedBy == nil || *replacedBy != replacement.ID || rotatedAt == nil || revokedAt == nil {
+		t.Fatalf("old key: status = %s, replaced_by = %v, rotated_at = %v, revoked_at = %v", status, replacedBy, rotatedAt, revokedAt)
+	}
+
+	active, err := srv.GetRoleKey(ctx, GetRoleKeyParams{Service: role.Service, Purpose: role.Purpose, Network: role.Network})
+	if err != nil || active.ID != replacement.ID {
+		t.Fatalf("active = %+v, err = %v", active, err)
 	}
 }

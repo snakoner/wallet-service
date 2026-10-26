@@ -35,7 +35,6 @@ func mustParse(t *testing.T, raw string) *Policy {
 	return p
 }
 
-// internalStub treats internal address as key of gas_station purpose.
 func internalStub(calls *int) IsInternal {
 	return func(address, purpose string) (bool, error) {
 		*calls++

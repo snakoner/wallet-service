@@ -1,5 +1,3 @@
-// gas-station-send sends ETH from gas station of service the way services do it:
-// get key from wallet service, build unsigned tx, sign it in wallet service, optionally broadcast.
 package main
 
 import (
@@ -124,7 +122,6 @@ func main() {
 
 	wallet := &walletClient{baseURL: strings.TrimRight(*apiURL, "/"), serviceKey: *serviceKey, http: &http.Client{Timeout: 15 * time.Second}}
 
-	// 1. current gas station key: key id changes after rotation, so it is not stored
 	var key struct {
 		ID      string `json:"id"`
 		Address string `json:"address"`
@@ -135,7 +132,6 @@ func main() {
 	}
 	fmt.Printf("gas station:  %s (key %s)\n", key.Address, key.ID)
 
-	// 2. unsigned EIP-1559 tx
 	eth, err := ethclient.DialContext(ctx, *rpcURL)
 	if err != nil {
 		log.Fatalf("dial rpc: %v", err)
@@ -164,7 +160,7 @@ func main() {
 	}
 	feeCap := new(big.Int).Add(new(big.Int).Mul(head.BaseFee, big.NewInt(2)), tip)
 
-	// transfer to new account costs more than 21000 gas after state gas repricing, so gas is estimated
+	// transfer to new account costs more than 21000 gas
 	toAddress := common.HexToAddress(*to)
 	gas, err := eth.EstimateGas(ctx, ethereum.CallMsg{From: from, To: &toAddress, Value: value})
 	if err != nil {
@@ -187,7 +183,6 @@ func main() {
 	}
 	fmt.Printf("tx:           %s ETH to %s, nonce %d, chain %s, gas %d, max fee %s wei\n", *amount, toAddress.Hex(), nonce, chainID, gas, feeCap)
 
-	// 3. sign in wallet service: policy of gas station role decides whether recipient is allowed
 	var signed struct {
 		SignedTx string `json:"signed_tx"`
 		TxHash   string `json:"tx_hash"`
@@ -204,7 +199,6 @@ func main() {
 		return
 	}
 
-	// 4. broadcast
 	signedTx := new(types.Transaction)
 	if err := signedTx.UnmarshalBinary(common.FromHex(signed.SignedTx)); err != nil {
 		log.Fatalf("decode signed tx: %v", err)
@@ -216,7 +210,6 @@ func main() {
 	fmt.Println("sent")
 }
 
-// ethToWei converts decimal ETH amount to wei, e.g. 0.001 -> 1000000000000000.
 func ethToWei(amount string) (*big.Int, error) {
 	eth, ok := new(big.Rat).SetString(amount)
 	if !ok || eth.Sign() <= 0 {

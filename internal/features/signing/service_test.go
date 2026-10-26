@@ -163,7 +163,6 @@ func TestSignTransactionErrors(t *testing.T) {
 	}
 }
 
-// stubSigner returns given operation, e.g. tron tx of other owner.
 type stubSigner struct{ op policy.Operation }
 
 func (s stubSigner) DecodeTx([]byte) (*policy.Operation, error) { return &s.op, nil }
@@ -211,5 +210,36 @@ func TestSignTransactionOwnerMismatch(t *testing.T) {
 	_, err := srv.SignTransaction(context.Background(), SignTransactionParams{Service: "exchange", KeyID: keys.key.ID, Network: constants.NetworkEthereum, RawTx: []byte{1}})
 	if !errors.Is(err, ErrInvalidTransaction) || keys.signed {
 		t.Fatalf("err = %v, signed = %v", err, keys.signed)
+	}
+}
+
+func TestSignTransactionToReplacement(t *testing.T) {
+	replacement := common.HexToAddress("0x5555555555555555555555555555555555555555")
+	native := func(to common.Address) []byte {
+		return marshalTx(t, types.NewTransaction(1, to, big.NewInt(10), 21000, big.NewInt(5), nil))
+	}
+	call := marshalTx(t, types.NewTx(&types.DynamicFeeTx{ChainID: big.NewInt(1), To: &replacement, Gas: 60000, Data: []byte{0x12, 0x34, 0x56, 0x78}}))
+
+	cases := []struct {
+		name string
+		raw  []byte
+		want error
+	}{
+		{"native to replacement", native(replacement), nil},
+		{"native to other address", native(testTo), ErrPolicyViolation},
+		{"contract call to replacement", call, ErrPolicyViolation},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			keys := newKeyProvider(t)
+			keys.key.Role.Policy = json.RawMessage(`{}`)
+			address := replacement.Hex()
+			keys.key.ReplacementAddress = &address
+
+			_, err := newTestService(keys).SignTransaction(context.Background(), SignTransactionParams{Service: "exchange", KeyID: keys.key.ID, Network: constants.NetworkEthereum, RawTx: tc.raw})
+			if !errors.Is(err, tc.want) || keys.signed != (tc.want == nil) {
+				t.Fatalf("err = %v, want %v, signed = %v", err, tc.want, keys.signed)
+			}
+		})
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -118,7 +119,6 @@ func (r *Repository) GetRoleByID(ctx context.Context, tx db.DBTX, id uuid.UUID) 
 	))
 }
 
-// ListRoles returns roles of service, all roles when service is empty.
 func (r *Repository) ListRoles(ctx context.Context, tx db.DBTX, service string) ([]Role, error) {
 	rows, err := tx.Query(ctx, `
 		SELECT`+roleColumns+`
@@ -161,7 +161,6 @@ func (r *Repository) UpdateRolePolicy(ctx context.Context, tx db.DBTX, id uuid.U
 	return nil
 }
 
-// IsServiceAddress reports whether address is active, rotating or pending key of service; purpose "" - any purpose.
 func (r *Repository) IsServiceAddress(
 	ctx context.Context,
 	tx db.DBTX,
@@ -195,7 +194,6 @@ func (r *Repository) IsServiceAddress(
 	return exists, nil
 }
 
-// GetRoleForUpdate locks role row, so keys of one role are created one by one.
 func (r *Repository) GetRoleForUpdate(ctx context.Context, tx db.DBTX, id uuid.UUID) (*Role, error) {
 	return scanRole(tx.QueryRow(ctx, `
 		SELECT`+roleColumns+`
@@ -259,7 +257,6 @@ func (r *Repository) CreateKey(ctx context.Context, tx db.DBTX, key *WalletKey) 
 	return nil
 }
 
-// GetKey returns service key with ciphers and role.
 func (r *Repository) GetKey(ctx context.Context, tx db.DBTX, id uuid.UUID, service string) (*WalletKey, error) {
 	var key WalletKey
 	err := tx.QueryRow(ctx, `
@@ -278,9 +275,11 @@ func (r *Repository) GetKey(ctx context.Context, tx db.DBTX, id uuid.UUID, servi
 			k.created_at,
 			k.updated_at,
 			k.rotated_at,
-			k.revoked_at,`+roleColumns+`
+			k.revoked_at,
+			rk.address,`+roleColumns+`
 		FROM wallet_keys k
 		JOIN wallet_roles r ON r.id = k.role_id
+		LEFT JOIN wallet_keys rk ON rk.id = k.replaced_by
 		WHERE k.id = $1 AND r.service = $2`,
 		id,
 		service,
@@ -300,6 +299,7 @@ func (r *Repository) GetKey(ctx context.Context, tx db.DBTX, id uuid.UUID, servi
 		&key.UpdatedAt,
 		&key.RotatedAt,
 		&key.RevokedAt,
+		&key.ReplacementAddress,
 		&key.Role.ID,
 		&key.Role.Service,
 		&key.Role.Purpose,
@@ -320,7 +320,6 @@ func (r *Repository) GetKey(ctx context.Context, tx db.DBTX, id uuid.UUID, servi
 	return &key, nil
 }
 
-// GetActiveKey returns active key of role without ciphers.
 func (r *Repository) GetActiveKey(ctx context.Context, tx db.DBTX, roleID uuid.UUID) (*WalletKey, error) {
 	var key WalletKey
 	err := tx.QueryRow(ctx, `
@@ -368,7 +367,6 @@ func (r *Repository) GetActiveKey(ctx context.Context, tx db.DBTX, roleID uuid.U
 	return &key, nil
 }
 
-// ListRoleKeys returns keys of role without ciphers.
 func (r *Repository) ListRoleKeys(ctx context.Context, tx db.DBTX, roleID uuid.UUID) ([]WalletKey, error) {
 	rows, err := tx.Query(ctx, `
 		SELECT
@@ -425,7 +423,6 @@ func (r *Repository) ListRoleKeys(ctx context.Context, tx db.DBTX, roleID uuid.U
 	return keys, nil
 }
 
-// ListKeys returns keys of all services by filter without ciphers, newest first.
 func (r *Repository) ListKeys(ctx context.Context, tx db.DBTX, filter ListKeysFilter) ([]WalletKey, error) {
 	conditions := []string{"TRUE"}
 	args := []any{}
@@ -523,4 +520,106 @@ func (r *Repository) ListKeys(ctx context.Context, tx db.DBTX, filter ListKeysFi
 	}
 
 	return keys, nil
+}
+
+func (r *Repository) GetKeyForUpdate(ctx context.Context, tx db.DBTX, id uuid.UUID) (*WalletKey, error) {
+	return scanLockedKey(tx.QueryRow(ctx, `
+		SELECT
+			k.id,
+			k.role_id,
+			k.network,
+			k.alias,
+			k.address,
+			k.status,
+			k.replaced_by,`+roleColumns+`
+		FROM wallet_keys k
+		JOIN wallet_roles r ON r.id = k.role_id
+		WHERE k.id = $1
+		FOR UPDATE OF k`,
+		id,
+	))
+}
+
+func (r *Repository) GetReplacedKeyForUpdate(ctx context.Context, tx db.DBTX, replacementID uuid.UUID) (*WalletKey, error) {
+	return scanLockedKey(tx.QueryRow(ctx, `
+		SELECT
+			k.id,
+			k.role_id,
+			k.network,
+			k.alias,
+			k.address,
+			k.status,
+			k.replaced_by,`+roleColumns+`
+		FROM wallet_keys k
+		JOIN wallet_roles r ON r.id = k.role_id
+		WHERE k.replaced_by = $1
+		FOR UPDATE OF k`,
+		replacementID,
+	))
+}
+
+func scanLockedKey(row pgx.Row) (*WalletKey, error) {
+	var key WalletKey
+	err := row.Scan(
+		&key.ID,
+		&key.RoleID,
+		&key.Network,
+		&key.Alias,
+		&key.Address,
+		&key.Status,
+		&key.ReplacedBy,
+		&key.Role.ID,
+		&key.Role.Service,
+		&key.Role.Purpose,
+		&key.Role.Label,
+		&key.Role.Network,
+		&key.Role.Kind,
+		&key.Role.Policy,
+		&key.Role.CreatedAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrKeyNotFound
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("select wallet key: %w", err)
+	}
+
+	return &key, nil
+}
+
+func (r *Repository) UpdateKeyStatus(ctx context.Context, tx db.DBTX, id uuid.UUID, status KeyStatus, now time.Time) error {
+	var rotatedAt, revokedAt *time.Time
+	switch status {
+	case KeyStatusRotating:
+		rotatedAt = &now
+	case KeyStatusRevoked:
+		revokedAt = &now
+	}
+
+	if _, err := tx.Exec(ctx, `
+		UPDATE wallet_keys
+		SET status = $2,
+			updated_at = $3,
+			rotated_at = COALESCE($4, rotated_at),
+			revoked_at = COALESCE($5, revoked_at)
+		WHERE id = $1`,
+		id,
+		status,
+		now,
+		rotatedAt,
+		revokedAt,
+	); err != nil {
+		return fmt.Errorf("update wallet key status: %w", err)
+	}
+
+	return nil
+}
+
+func (r *Repository) SetKeyReplacedBy(ctx context.Context, tx db.DBTX, id uuid.UUID, replacedBy *uuid.UUID, now time.Time) error {
+	if _, err := tx.Exec(ctx, `UPDATE wallet_keys SET replaced_by = $2, updated_at = $3 WHERE id = $1`, id, replacedBy, now); err != nil {
+		return fmt.Errorf("set wallet key replaced_by: %w", err)
+	}
+
+	return nil
 }
