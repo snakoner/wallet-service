@@ -43,6 +43,7 @@ func NewRouter(
 				admin.GET("/roles", handlers.Admin.ListRoles)
 				admin.PUT("/roles/:id/policy", handlers.Admin.UpdatePolicy)
 				admin.POST("/roles/:id/keys", handlers.Admin.CreateKey)
+				admin.POST("/roles/:id/keys/import", handlers.Admin.ImportKey)
 				admin.GET("/roles/:id/keys", handlers.Admin.ListRoleKeys)
 				admin.GET("/keys", handlers.Admin.ListKeys)
 				admin.POST("/keys/:id/rotate", handlers.Admin.RotateKey)
@@ -50,6 +51,12 @@ func NewRouter(
 				admin.POST("/keys/:id/revoke", handlers.Admin.RevokeKey)
 				admin.POST("/keys/:id/disable", handlers.Admin.DisableKey)
 				admin.POST("/keys/:id/enable", handlers.Admin.EnableKey)
+				admin.POST("/keys/:id/release-lease", handlers.Admin.ReleaseLease)
+
+				admin.POST("/service-clients", handlers.ClientsAdmin.CreateClient)
+				admin.GET("/service-clients", handlers.ClientsAdmin.ListClients)
+				admin.POST("/service-clients/rotate", handlers.ClientsAdmin.RotateClient)
+				admin.POST("/service-clients/:id/revoke", handlers.ClientsAdmin.RevokeClient)
 			}
 		}
 
@@ -57,6 +64,13 @@ func NewRouter(
 		{
 			roles.GET("/:purpose/key", handlers.KeyStorage.GetRoleKey)
 			roles.GET("/:purpose/keys", handlers.KeyStorage.GetRoleKeys)
+			roles.POST("/:purpose/lease", handlers.KeyStorage.AcquireLease)
+		}
+
+		leases := api.Group("/leases", serviceAuth.Handle())
+		{
+			leases.POST("/:id/extend", handlers.KeyStorage.ExtendLease)
+			leases.DELETE("/:id", handlers.KeyStorage.ReleaseLease)
 		}
 
 		keys := api.Group(

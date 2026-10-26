@@ -256,6 +256,40 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/admin/keys/{id}/release-lease": {
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Force release lease of key held by stuck instance",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Key id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/httputil.Response"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httputil.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/admin/keys/{id}/revoke": {
             "post": {
                 "produces": [
@@ -581,6 +615,77 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/admin/roles/{id}/keys/import": {
+            "post": {
+                "description": "For keys moved from service env. Private key travels in request body: use only over TLS without body logging.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Import existing private key into role",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Role id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Private key",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/key_storage.ImportKeyRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/httputil.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/key_storage.KeyResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httputil.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httputil.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/httputil.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/admin/roles/{id}/policy": {
             "put": {
                 "description": "Applies to all keys of role. Format is described in docs/POLICY.md. Empty rules deny signing.",
@@ -635,6 +740,195 @@ const docTemplate = `{
                         "description": "Bad Request",
                         "schema": {
                             "$ref": "#/definitions/httputil.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httputil.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/service-clients": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "List service keys without hashes",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Service name, all services when empty",
+                        "name": "service",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/httputil.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "$ref": "#/definitions/service_client.ClientResponse"
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            },
+            "post": {
+                "description": "Key is shown once, only its hash is stored. Service with active key must be rotated instead.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Register service and issue its X-Service-Key",
+                "parameters": [
+                    {
+                        "description": "Service",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/service_client.CreateClientRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/httputil.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/service_client.IssuedKeyResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httputil.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/httputil.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/service-clients/rotate": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Issue new X-Service-Key, old one is accepted for grace period",
+                "parameters": [
+                    {
+                        "description": "Service and grace period",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/service_client.RotateClientRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/httputil.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/service_client.IssuedKeyResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httputil.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httputil.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/service-clients/{id}/revoke": {
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Reject service key at once",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Service client id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/httputil.Response"
                         }
                     },
                     "404": {
@@ -721,6 +1015,119 @@ const docTemplate = `{
                     },
                     "404": {
                         "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httputil.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/httputil.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/leases/{id}": {
+            "delete": {
+                "security": [
+                    {
+                        "ServiceKey": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "keys"
+                ],
+                "summary": "Release own lease",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Lease id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/httputil.Response"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httputil.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/httputil.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/leases/{id}/extend": {
+            "post": {
+                "security": [
+                    {
+                        "ServiceKey": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "keys"
+                ],
+                "summary": "Extend own lease",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Lease id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "TTL",
+                        "name": "request",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/key_storage.ExtendLeaseRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/httputil.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/key_storage.ExtendLeaseResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
                         "schema": {
                             "$ref": "#/definitions/httputil.ErrorResponse"
                         }
@@ -890,6 +1297,88 @@ const docTemplate = `{
                     }
                 }
             }
+        },
+        "/api/v1/roles/{purpose}/lease": {
+            "post": {
+                "security": [
+                    {
+                        "ServiceKey": []
+                    }
+                ],
+                "description": "Key is used exclusively by caller until lease expires or is released. Pool keys sign only with lease.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "keys"
+                ],
+                "summary": "Lease free key of own role",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Role purpose, e.g. executor",
+                        "name": "purpose",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Lease params",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/key_storage.AcquireLeaseRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/httputil.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/key_storage.LeaseResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httputil.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httputil.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httputil.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "NO_FREE_KEY, retry after Retry-After seconds",
+                        "schema": {
+                            "$ref": "#/definitions/httputil.ErrorResponse"
+                        }
+                    }
+                }
+            }
         }
     },
     "definitions": {
@@ -931,6 +1420,34 @@ const docTemplate = `{
                 },
                 "success": {
                     "type": "boolean"
+                }
+            }
+        },
+        "key_storage.AcquireLeaseRequest": {
+            "type": "object",
+            "required": [
+                "network"
+            ],
+            "properties": {
+                "exclude": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "label": {
+                    "type": "string"
+                },
+                "network": {
+                    "type": "string"
+                },
+                "owner": {
+                    "type": "string",
+                    "maxLength": 128
+                },
+                "ttl_seconds": {
+                    "type": "integer",
+                    "minimum": 1
                 }
             }
         },
@@ -980,6 +1497,42 @@ const docTemplate = `{
                 }
             }
         },
+        "key_storage.ExtendLeaseRequest": {
+            "type": "object",
+            "properties": {
+                "ttl_seconds": {
+                    "type": "integer",
+                    "minimum": 1
+                }
+            }
+        },
+        "key_storage.ExtendLeaseResponse": {
+            "type": "object",
+            "properties": {
+                "expires_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "key_storage.ImportKeyRequest": {
+            "type": "object",
+            "required": [
+                "private_key"
+            ],
+            "properties": {
+                "alias": {
+                    "type": "string"
+                },
+                "external_ref": {
+                    "description": "only for deposit role",
+                    "type": "string"
+                },
+                "private_key": {
+                    "description": "hex, with or without 0x",
+                    "type": "string"
+                }
+            }
+        },
         "key_storage.KeyResponse": {
             "type": "object",
             "properties": {
@@ -1001,6 +1554,13 @@ const docTemplate = `{
                 "label": {
                     "type": "string"
                 },
+                "lease_owner": {
+                    "type": "string"
+                },
+                "leased_until": {
+                    "description": "new key after rotation",
+                    "type": "string"
+                },
                 "network": {
                     "type": "string"
                 },
@@ -1008,13 +1568,26 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "replaced_by": {
-                    "description": "new key after rotation",
                     "type": "string"
                 },
                 "service": {
                     "type": "string"
                 },
                 "status": {
+                    "type": "string"
+                }
+            }
+        },
+        "key_storage.LeaseResponse": {
+            "type": "object",
+            "properties": {
+                "expires_at": {
+                    "type": "string"
+                },
+                "key": {
+                    "$ref": "#/definitions/key_storage.KeyResponse"
+                },
+                "lease_id": {
                     "type": "string"
                 }
             }
@@ -1059,6 +1632,74 @@ const docTemplate = `{
                 }
             }
         },
+        "service_client.ClientResponse": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "expires_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "replaced_by": {
+                    "type": "string"
+                },
+                "revoked_at": {
+                    "type": "string"
+                },
+                "service": {
+                    "type": "string"
+                },
+                "state": {
+                    "type": "string"
+                }
+            }
+        },
+        "service_client.CreateClientRequest": {
+            "type": "object",
+            "required": [
+                "service"
+            ],
+            "properties": {
+                "service": {
+                    "type": "string"
+                }
+            }
+        },
+        "service_client.IssuedKeyResponse": {
+            "type": "object",
+            "properties": {
+                "client": {
+                    "$ref": "#/definitions/service_client.ClientResponse"
+                },
+                "old_client": {
+                    "$ref": "#/definitions/service_client.ClientResponse"
+                },
+                "service_key": {
+                    "description": "shown once, only hash is stored",
+                    "type": "string"
+                }
+            }
+        },
+        "service_client.RotateClientRequest": {
+            "type": "object",
+            "required": [
+                "service"
+            ],
+            "properties": {
+                "grace_seconds": {
+                    "description": "default 24h, 0 rejects old key at once",
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "service": {
+                    "type": "string"
+                }
+            }
+        },
         "signing.SignTransactionRequest": {
             "type": "object",
             "required": [
@@ -1066,11 +1707,14 @@ const docTemplate = `{
                 "raw_tx"
             ],
             "properties": {
+                "lease_id": {
+                    "description": "required for pool keys // hex of unsigned tx: ethereum - types.Transaction.MarshalBinary, tron - raw_data_hex",
+                    "type": "string"
+                },
                 "network": {
                     "type": "string"
                 },
                 "raw_tx": {
-                    "description": "hex of unsigned tx: ethereum - types.Transaction.MarshalBinary, tron - raw_data_hex",
                     "type": "string"
                 }
             }

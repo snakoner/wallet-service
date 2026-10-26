@@ -14,4 +14,8 @@ var (
 	ErrRoleExists         = apperror.Conflict("ROLE_EXISTS", "role already exists")
 	ErrInvalidKeyStatus   = apperror.Conflict("INVALID_KEY_STATUS", "operation is not allowed in current key status")
 	ErrRotationInProgress = apperror.Conflict("ROTATION_IN_PROGRESS", "key already has pending replacement")
+	ErrNoFreeKey          = apperror.Conflict("NO_FREE_KEY", "no free key in role, retry later")
+	ErrLeaseExpired       = apperror.Conflict("LEASE_EXPIRED", "lease expired or belongs to other instance")
+	ErrLeaseRequired      = apperror.Conflict("LEASE_REQUIRED", "pool key requires lease")
+	ErrKeyLeased          = apperror.Conflict("KEY_LEASED", "key is leased by other instance")
 )

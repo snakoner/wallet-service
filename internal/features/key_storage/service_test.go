@@ -102,6 +102,61 @@ func (r *repoStub) ListKeys(_ context.Context, _ db.DBTX, filter ListKeysFilter)
 	return keys, nil
 }
 
+func (r *repoStub) AcquireLease(_ context.Context, _ db.DBTX, roleID, leaseID uuid.UUID, owner string, ttl time.Duration, exclude []uuid.UUID) (*WalletKey, error) {
+	now := time.Now().UTC()
+	for _, key := range r.keys {
+		excluded := false
+		for _, id := range exclude {
+			excluded = excluded || id == key.ID
+		}
+		if key.RoleID != roleID || key.Status != KeyStatusActive || excluded || (key.LeasedUntil != nil && key.LeasedUntil.After(now)) {
+			continue
+		}
+		until := now.Add(ttl)
+		key.LeaseID, key.LeaseOwner, key.LeasedUntil = &leaseID, &owner, &until
+		return key, nil
+	}
+	return nil, ErrNoFreeKey
+}
+
+func (r *repoStub) leased(leaseID uuid.UUID) *WalletKey {
+	for _, key := range r.keys {
+		if key.LeaseID != nil && *key.LeaseID == leaseID {
+			return key
+		}
+	}
+	return nil
+}
+
+func (r *repoStub) ExtendLease(_ context.Context, _ db.DBTX, leaseID uuid.UUID, _ string, ttl time.Duration) (time.Time, error) {
+	key := r.leased(leaseID)
+	if key == nil || !key.LeasedUntil.After(time.Now().UTC()) {
+		return time.Time{}, ErrLeaseExpired
+	}
+	until := time.Now().UTC().Add(ttl)
+	key.LeasedUntil = &until
+	return until, nil
+}
+
+func (r *repoStub) ReleaseLease(_ context.Context, _ db.DBTX, leaseID uuid.UUID, _ string) error {
+	key := r.leased(leaseID)
+	if key == nil {
+		return ErrLeaseExpired
+	}
+	now := time.Now().UTC()
+	key.LeaseID, key.LeaseOwner, key.LeasedUntil = nil, nil, &now
+	return nil
+}
+
+func (r *repoStub) ForceReleaseLease(_ context.Context, _ db.DBTX, keyID uuid.UUID) error {
+	key := r.findKey(keyID)
+	if key == nil {
+		return ErrKeyNotFound
+	}
+	key.LeaseID, key.LeaseOwner = nil, nil
+	return nil
+}
+
 func (r *repoStub) GetRoleForUpdate(_ context.Context, _ db.DBTX, id uuid.UUID) (*Role, error) {
 	for _, role := range r.roles {
 		if role.ID == id {
@@ -135,6 +190,7 @@ func (r *repoStub) GetKey(_ context.Context, _ db.DBTX, id uuid.UUID, service st
 	for _, key := range r.keys {
 		if key.ID == id && key.Role.Service == service {
 			key.ReplacementAddress = nil
+			key.LeaseActive = key.LeaseID != nil && key.LeasedUntil != nil && key.LeasedUntil.After(time.Now().UTC())
 			if key.ReplacedBy != nil {
 				key.ReplacementAddress = &r.findKey(*key.ReplacedBy).Address
 			}
@@ -455,7 +511,7 @@ func TestUseSigningKey(t *testing.T) {
 			srv, key := newSigningTestKey(t, constants.NetworkEthereum, status)
 
 			var used []byte
-			err := srv.UseSigningKey(context.Background(), "exchange", key.ID, constants.NetworkEthereum, func(*WalletKey) error { return nil }, func(got *WalletKey, privateKey []byte) error {
+			err := srv.UseSigningKey(context.Background(), "exchange", key.ID, constants.NetworkEthereum, nil, func(*WalletKey) error { return nil }, func(got *WalletKey, privateKey []byte) error {
 				address, err := ethereumlib.PrivateKeyToAddress(string(privateKey))
 				if err != nil || address != got.Address || got.Role.Service != "exchange" {
 					t.Fatalf("address = %q, err = %v, want %q", address, err, got.Address)
@@ -493,7 +549,7 @@ func TestUseSigningKeyErrors(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			srv, key := newSigningTestKey(t, tc.keyNetwork, tc.status)
-			err := srv.UseSigningKey(context.Background(), "exchange", key.ID, tc.network, func(*WalletKey) error { return nil }, func(*WalletKey, []byte) error {
+			err := srv.UseSigningKey(context.Background(), "exchange", key.ID, tc.network, nil, func(*WalletKey) error { return nil }, func(*WalletKey, []byte) error {
 				t.Fatal("fn must not be called")
 				return nil
 			})
@@ -504,12 +560,12 @@ func TestUseSigningKeyErrors(t *testing.T) {
 	}
 
 	srv, key := newSigningTestKey(t, eth, KeyStatusActive)
-	if err := srv.UseSigningKey(context.Background(), "banknote", key.ID, eth, func(*WalletKey) error { return nil }, func(*WalletKey, []byte) error { return nil }); !errors.Is(err, ErrKeyNotFound) {
+	if err := srv.UseSigningKey(context.Background(), "banknote", key.ID, eth, nil, func(*WalletKey) error { return nil }, func(*WalletKey, []byte) error { return nil }); !errors.Is(err, ErrKeyNotFound) {
 		t.Fatalf("other service: err = %v", err)
 	}
 
 	fnErr := errors.New("fn failed")
-	if err := srv.UseSigningKey(context.Background(), "exchange", key.ID, eth, func(*WalletKey) error { return nil }, func(*WalletKey, []byte) error { return fnErr }); !errors.Is(err, fnErr) {
+	if err := srv.UseSigningKey(context.Background(), "exchange", key.ID, eth, nil, func(*WalletKey) error { return nil }, func(*WalletKey, []byte) error { return fnErr }); !errors.Is(err, fnErr) {
 		t.Fatalf("fn error: err = %v", err)
 	}
 }
@@ -549,7 +605,7 @@ func TestUseSigningKeyCheckBeforeDecrypt(t *testing.T) {
 	key.KeyCipher = []byte("broken")
 
 	checkErr := errors.New("denied")
-	err := srv.UseSigningKey(context.Background(), "exchange", key.ID, constants.NetworkEthereum,
+	err := srv.UseSigningKey(context.Background(), "exchange", key.ID, constants.NetworkEthereum, nil,
 		func(got *WalletKey) error {
 			if got.ID != key.ID || got.Role.Service != "exchange" {
 				t.Fatalf("check got key = %+v", got)
@@ -701,11 +757,11 @@ func TestRotateKeyLifecycle(t *testing.T) {
 		t.Fatalf("active before activation = %s", key.ID)
 	}
 	noop := func(*WalletKey) error { return nil }
-	if err := srv.UseSigningKey(ctx, "exchange", replacement.ID, constants.NetworkEthereum, noop, func(*WalletKey, []byte) error { return nil }); err != nil {
+	if err := srv.UseSigningKey(ctx, "exchange", replacement.ID, constants.NetworkEthereum, nil, noop, func(*WalletKey, []byte) error { return nil }); err != nil {
 		t.Fatalf("pending key must sign: err = %v", err)
 	}
 
-	err = srv.UseSigningKey(ctx, "exchange", old.ID, constants.NetworkEthereum, func(key *WalletKey) error {
+	err = srv.UseSigningKey(ctx, "exchange", old.ID, constants.NetworkEthereum, nil, func(key *WalletKey) error {
 		if key.ReplacementAddress == nil || *key.ReplacementAddress != replacement.Address {
 			t.Fatalf("replacement address = %v", key.ReplacementAddress)
 		}
@@ -724,14 +780,14 @@ func TestRotateKeyLifecycle(t *testing.T) {
 	if key, _ := srv.GetRoleKey(ctx, params); key.ID != replacement.ID {
 		t.Fatalf("active after activation = %s", key.ID)
 	}
-	if err := srv.UseSigningKey(ctx, "exchange", old.ID, constants.NetworkEthereum, noop, func(*WalletKey, []byte) error { return nil }); err != nil {
+	if err := srv.UseSigningKey(ctx, "exchange", old.ID, constants.NetworkEthereum, nil, noop, func(*WalletKey, []byte) error { return nil }); err != nil {
 		t.Fatalf("rotating key must sign: err = %v", err)
 	}
 
 	if _, err := srv.RevokeKey(ctx, old.ID); err != nil || old.Status != KeyStatusRevoked || old.RevokedAt == nil {
 		t.Fatalf("RevokeKey() = %v, old = %+v", err, old)
 	}
-	if err := srv.UseSigningKey(ctx, "exchange", old.ID, constants.NetworkEthereum, noop, func(*WalletKey, []byte) error { return nil }); !errors.Is(err, ErrKeyNotActive) {
+	if err := srv.UseSigningKey(ctx, "exchange", old.ID, constants.NetworkEthereum, nil, noop, func(*WalletKey, []byte) error { return nil }); !errors.Is(err, ErrKeyNotActive) {
 		t.Fatalf("revoked key: err = %v", err)
 	}
 }
@@ -855,5 +911,101 @@ func TestDisableEnableKey(t *testing.T) {
 	}
 	if _, err := srv.EnableKey(ctx, key.ID); !errors.Is(err, ErrActiveKeyExists) {
 		t.Fatalf("enable with other active: err = %v", err)
+	}
+}
+
+func TestLease(t *testing.T) {
+	repo := &repoStub{}
+	srv := newTestService(t, repo)
+	ctx := context.Background()
+
+	pool := createTestRole(t, srv, constants.NetworkEthereum, RoleKindPool)
+	first, _ := srv.CreateKey(ctx, CreateKeyParams{RoleID: pool.ID})
+	second, _ := srv.CreateKey(ctx, CreateKeyParams{RoleID: pool.ID})
+	params := AcquireLeaseParams{Service: "exchange", Purpose: "gas_station", Label: "pool", Network: constants.NetworkEthereum, Owner: "pod-1"}
+
+	lease, err := srv.AcquireLease(ctx, params)
+	if err != nil || lease.Key.ID != first.ID || lease.Key.Role.Kind != RoleKindPool || !lease.ExpiresAt.After(time.Now()) {
+		t.Fatalf("lease = %+v, err = %v", lease, err)
+	}
+	if lease.ExpiresAt.After(time.Now().Add(defaultLeaseTTL + time.Second)) {
+		t.Fatalf("default ttl: expires at %s", lease.ExpiresAt)
+	}
+
+	params.Exclude = []uuid.UUID{second.ID}
+	if _, err := srv.AcquireLease(ctx, params); !errors.Is(err, ErrNoFreeKey) {
+		t.Fatalf("all leased or excluded: err = %v", err)
+	}
+
+	params.Exclude, params.TTL = nil, time.Hour
+	if other, err := srv.AcquireLease(ctx, params); err != nil || other.Key.ID != second.ID || other.ExpiresAt.After(time.Now().Add(maxLeaseTTL+time.Second)) {
+		t.Fatalf("second lease = %+v, err = %v", other, err)
+	}
+
+	noop := func(*WalletKey) error { return nil }
+	sign := func(keyID uuid.UUID, leaseID *uuid.UUID) error {
+		return srv.UseSigningKey(ctx, "exchange", keyID, constants.NetworkEthereum, leaseID, noop, func(*WalletKey, []byte) error { return nil })
+	}
+	stranger := uuid.New()
+	if err := sign(first.ID, &lease.ID); err != nil {
+		t.Fatalf("sign with own lease: err = %v", err)
+	}
+	if err := sign(first.ID, nil); !errors.Is(err, ErrLeaseRequired) {
+		t.Fatalf("pool key without lease: err = %v", err)
+	}
+	if err := sign(first.ID, &stranger); !errors.Is(err, ErrLeaseExpired) {
+		t.Fatalf("pool key with other lease: err = %v", err)
+	}
+
+	if _, err := srv.ExtendLease(ctx, "exchange", lease.ID, 0); err != nil {
+		t.Fatalf("extend: err = %v", err)
+	}
+	if err := srv.ReleaseLease(ctx, "exchange", lease.ID); err != nil {
+		t.Fatalf("release: err = %v", err)
+	}
+	if err := sign(first.ID, &lease.ID); !errors.Is(err, ErrLeaseExpired) {
+		t.Fatalf("sign with released lease: err = %v", err)
+	}
+	if _, err := srv.ExtendLease(ctx, "exchange", lease.ID, 0); !errors.Is(err, ErrLeaseExpired) {
+		t.Fatalf("extend released: err = %v", err)
+	}
+
+	deposit := createTestRole(t, srv, constants.NetworkEthereum, RoleKindDeposit)
+	if _, err := srv.AcquireLease(ctx, AcquireLeaseParams{Service: "exchange", Purpose: deposit.Purpose, Label: deposit.Label, Network: constants.NetworkEthereum}); !errors.Is(err, ErrInvalidParams) {
+		t.Fatalf("deposit lease: err = %v", err)
+	}
+}
+
+func TestLeaseSingleKey(t *testing.T) {
+	srv := newTestService(t, &repoStub{})
+	ctx := context.Background()
+
+	role := createTestRole(t, srv, constants.NetworkEthereum, RoleKindSingle)
+	key, _ := srv.CreateKey(ctx, CreateKeyParams{RoleID: role.ID})
+	noop := func(*WalletKey) error { return nil }
+	sign := func(leaseID *uuid.UUID) error {
+		return srv.UseSigningKey(ctx, "exchange", key.ID, constants.NetworkEthereum, leaseID, noop, func(*WalletKey, []byte) error { return nil })
+	}
+
+	if err := sign(nil); err != nil {
+		t.Fatalf("single key without lease: err = %v", err)
+	}
+
+	lease, err := srv.AcquireLease(ctx, AcquireLeaseParams{Service: "exchange", Purpose: role.Purpose, Label: role.Label, Network: role.Network})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sign(nil); !errors.Is(err, ErrKeyLeased) {
+		t.Fatalf("leased single key without lease: err = %v", err)
+	}
+	if err := sign(&lease.ID); err != nil {
+		t.Fatalf("single key with lease: err = %v", err)
+	}
+
+	if err := srv.ForceReleaseLease(ctx, key.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := sign(nil); err != nil {
+		t.Fatalf("after force release: err = %v", err)
 	}
 }

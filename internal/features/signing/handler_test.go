@@ -96,3 +96,16 @@ func TestHandlerSignTransactionErrors(t *testing.T) {
 		})
 	}
 }
+
+func TestHandlerSignTransactionLease(t *testing.T) {
+	svc := &serviceStub{}
+	leaseID := uuid.New()
+	w := doSignTransaction(t, svc, "exchange", uuid.New().String(), `{"network":"ethereum","raw_tx":"0x01","lease_id":"`+leaseID.String()+`"}`)
+	if w.Code != http.StatusOK || svc.params.LeaseID == nil || *svc.params.LeaseID != leaseID {
+		t.Fatalf("code = %d, lease = %v", w.Code, svc.params.LeaseID)
+	}
+
+	if w := doSignTransaction(t, &serviceStub{}, "exchange", uuid.New().String(), `{"network":"ethereum","raw_tx":"0x01","lease_id":"abc"}`); w.Code != http.StatusBadRequest {
+		t.Fatalf("bad lease id: code = %d", w.Code)
+	}
+}

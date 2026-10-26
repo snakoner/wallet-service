@@ -17,6 +17,7 @@ type AdminService interface {
 	ListRoles(ctx context.Context, service string) ([]Role, error)
 	UpdatePolicy(ctx context.Context, roleID uuid.UUID, raw json.RawMessage) (*Role, error)
 	CreateKey(ctx context.Context, params CreateKeyParams) (*WalletKey, error)
+	ImportKey(ctx context.Context, params ImportKeyParams) (*WalletKey, error)
 	ListRoleKeys(ctx context.Context, roleID uuid.UUID) ([]WalletKey, error)
 	ListKeys(ctx context.Context, filter ListKeysFilter) ([]WalletKey, error)
 	RotateKey(ctx context.Context, keyID uuid.UUID) (*WalletKey, error)
@@ -24,6 +25,7 @@ type AdminService interface {
 	RevokeKey(ctx context.Context, keyID uuid.UUID) (*WalletKey, error)
 	DisableKey(ctx context.Context, keyID uuid.UUID) (*WalletKey, error)
 	EnableKey(ctx context.Context, keyID uuid.UUID) (*WalletKey, error)
+	ForceReleaseLease(ctx context.Context, keyID uuid.UUID) error
 }
 
 type AdminHandler struct {
@@ -323,6 +325,71 @@ func (h *AdminHandler) keyAction(c *gin.Context, action string, do func(ctx cont
 	key, err := do(c.Request.Context(), keyID)
 	if err != nil {
 		h.log.Error().Err(err).Str("key_id", keyID.String()).Msg("admin " + action + " key")
+		httputil.Fail(c, err)
+		return
+	}
+
+	httputil.OK(c, NewKeyResponse(key))
+}
+
+// ReleaseLease godoc
+// @Summary     Force release lease of key held by stuck instance
+// @Tags        admin
+// @Produce     json
+// @Param       id path string true "Key id"
+// @Success     200 {object} httputil.Response
+// @Failure     404 {object} httputil.ErrorResponse
+// @Router      /api/v1/admin/keys/{id}/release-lease [post]
+func (h *AdminHandler) ReleaseLease(c *gin.Context) {
+	keyID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		httputil.Fail(c, ErrKeyNotFound)
+		return
+	}
+
+	if err := h.service.ForceReleaseLease(c.Request.Context(), keyID); err != nil {
+		h.log.Error().Err(err).Str("key_id", keyID.String()).Msg("admin release lease")
+		httputil.Fail(c, err)
+		return
+	}
+
+	httputil.OK(c, nil)
+}
+
+// ImportKey godoc
+// @Summary     Import existing private key into role
+// @Description For keys moved from service env. Private key travels in request body: use only over TLS without body logging.
+// @Tags        admin
+// @Accept      json
+// @Produce     json
+// @Param       id      path string                           true "Role id"
+// @Param       request body key_storage.ImportKeyRequest true "Private key"
+// @Success     200 {object} httputil.Response{data=key_storage.KeyResponse}
+// @Failure     400 {object} httputil.ErrorResponse
+// @Failure     404 {object} httputil.ErrorResponse
+// @Failure     409 {object} httputil.ErrorResponse
+// @Router      /api/v1/admin/roles/{id}/keys/import [post]
+func (h *AdminHandler) ImportKey(c *gin.Context) {
+	roleID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		httputil.Fail(c, ErrRoleNotFound)
+		return
+	}
+
+	var req ImportKeyRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		httputil.BadRequestValidation(c, err)
+		return
+	}
+
+	key, err := h.service.ImportKey(c.Request.Context(), ImportKeyParams{
+		RoleID:      roleID,
+		PrivateKey:  []byte(req.PrivateKey),
+		Alias:       req.Alias,
+		ExternalRef: req.ExternalRef,
+	})
+	if err != nil {
+		h.log.Error().Err(err).Str("role_id", roleID.String()).Msg("admin import key")
 		httputil.Fail(c, err)
 		return
 	}

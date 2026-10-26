@@ -31,6 +31,7 @@ type keyProviderStub struct {
 	network    constants.Network
 	called     bool
 	signed     bool
+	leaseID    *uuid.UUID
 	internal   map[string]string // address -> purpose
 }
 
@@ -39,10 +40,11 @@ func (p *keyProviderStub) UseSigningKey(
 	service string,
 	keyID uuid.UUID,
 	network constants.Network,
+	leaseID *uuid.UUID,
 	check func(key *keystorage.WalletKey) error,
 	fn func(key *keystorage.WalletKey, privateKey []byte) error,
 ) error {
-	p.called, p.service, p.keyID, p.network = true, service, keyID, network
+	p.called, p.service, p.keyID, p.network, p.leaseID = true, service, keyID, network, leaseID
 	if p.err != nil {
 		return p.err
 	}
@@ -241,5 +243,18 @@ func TestSignTransactionToReplacement(t *testing.T) {
 				t.Fatalf("err = %v, want %v, signed = %v", err, tc.want, keys.signed)
 			}
 		})
+	}
+}
+
+func TestSignTransactionPassesLease(t *testing.T) {
+	keys := newKeyProvider(t)
+	leaseID := uuid.New()
+	raw := marshalTx(t, types.NewTransaction(1, testTo, big.NewInt(10), 21000, big.NewInt(5), nil))
+
+	if _, err := newTestService(keys).SignTransaction(context.Background(), SignTransactionParams{Service: "exchange", KeyID: keys.key.ID, Network: constants.NetworkEthereum, RawTx: raw, LeaseID: &leaseID}); err != nil {
+		t.Fatal(err)
+	}
+	if keys.leaseID == nil || *keys.leaseID != leaseID {
+		t.Fatalf("lease passed to key provider = %v", keys.leaseID)
 	}
 }

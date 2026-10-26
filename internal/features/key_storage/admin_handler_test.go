@@ -18,14 +18,15 @@ import (
 )
 
 type adminServiceStub struct {
-	keyID      uuid.UUID
-	keysFilter ListKeysFilter
-	policy     json.RawMessage
-	roleParams CreateRoleParams
-	keyParams  CreateKeyParams
-	service    string
-	roleID     uuid.UUID
-	err        error
+	importParams ImportKeyParams
+	keyID        uuid.UUID
+	keysFilter   ListKeysFilter
+	policy       json.RawMessage
+	roleParams   CreateRoleParams
+	keyParams    CreateKeyParams
+	service      string
+	roleID       uuid.UUID
+	err          error
 }
 
 func (s *adminServiceStub) CreateRole(_ context.Context, params CreateRoleParams) (*Role, error) {
@@ -58,6 +59,19 @@ func (s *adminServiceStub) keyAction(keyID uuid.UUID, status KeyStatus) (*Wallet
 		return nil, s.err
 	}
 	return &WalletKey{ID: keyID, Role: Role{Service: "exchange", Kind: RoleKindSingle}, Network: constants.NetworkEthereum, Address: "0xA", Status: status, KeyCipher: []byte("secret")}, nil
+}
+
+func (s *adminServiceStub) ImportKey(_ context.Context, params ImportKeyParams) (*WalletKey, error) {
+	s.importParams = params
+	if s.err != nil {
+		return nil, s.err
+	}
+	return &WalletKey{ID: uuid.New(), RoleID: params.RoleID, Network: constants.NetworkEthereum, Address: "0xA", KeyCipher: []byte("secret")}, nil
+}
+
+func (s *adminServiceStub) ForceReleaseLease(_ context.Context, id uuid.UUID) error {
+	s.keyID = id
+	return s.err
 }
 
 func (s *adminServiceStub) RotateKey(_ context.Context, id uuid.UUID) (*WalletKey, error) {
@@ -113,6 +127,7 @@ func doAdmin(t *testing.T, svc *adminServiceStub, method, path, body string) *ht
 	r.GET("/api/v1/admin/roles", h.ListRoles)
 	r.PUT("/api/v1/admin/roles/:id/policy", h.UpdatePolicy)
 	r.POST("/api/v1/admin/roles/:id/keys", h.CreateKey)
+	r.POST("/api/v1/admin/roles/:id/keys/import", h.ImportKey)
 	r.GET("/api/v1/admin/roles/:id/keys", h.ListRoleKeys)
 	r.GET("/api/v1/admin/keys", h.ListKeys)
 	r.POST("/api/v1/admin/keys/:id/rotate", h.RotateKey)
@@ -120,6 +135,7 @@ func doAdmin(t *testing.T, svc *adminServiceStub, method, path, body string) *ht
 	r.POST("/api/v1/admin/keys/:id/revoke", h.RevokeKey)
 	r.POST("/api/v1/admin/keys/:id/disable", h.DisableKey)
 	r.POST("/api/v1/admin/keys/:id/enable", h.EnableKey)
+	r.POST("/api/v1/admin/keys/:id/release-lease", h.ReleaseLease)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest(method, path, strings.NewReader(body)))
 	return w
@@ -265,5 +281,35 @@ func TestAdminKeyActions(t *testing.T) {
 	}
 	if w := doAdmin(t, &adminServiceStub{err: ErrRotationInProgress}, http.MethodPost, "/api/v1/admin/keys/"+keyID.String()+"/rotate", ""); w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "ROTATION_IN_PROGRESS") {
 		t.Fatalf("in progress: code = %d, body = %s", w.Code, w.Body)
+	}
+}
+
+func TestAdminReleaseLease(t *testing.T) {
+	keyID := uuid.New()
+	svc := &adminServiceStub{}
+	if w := doAdmin(t, svc, http.MethodPost, "/api/v1/admin/keys/"+keyID.String()+"/release-lease", ""); w.Code != http.StatusOK || svc.keyID != keyID {
+		t.Fatalf("code = %d", w.Code)
+	}
+	if w := doAdmin(t, &adminServiceStub{err: ErrKeyNotFound}, http.MethodPost, "/api/v1/admin/keys/"+keyID.String()+"/release-lease", ""); w.Code != http.StatusNotFound {
+		t.Fatalf("not found: code = %d", w.Code)
+	}
+}
+
+func TestAdminImportKey(t *testing.T) {
+	roleID := uuid.New()
+	svc := &adminServiceStub{}
+	w := doAdmin(t, svc, http.MethodPost, "/api/v1/admin/roles/"+roleID.String()+"/keys/import", `{"private_key":"0xabc","alias":"old gas"}`)
+	if w.Code != http.StatusOK || svc.importParams.RoleID != roleID || string(svc.importParams.PrivateKey) != "0xabc" || *svc.importParams.Alias != "old gas" {
+		t.Fatalf("code = %d, params = %+v, body = %s", w.Code, svc.importParams, w.Body)
+	}
+	if strings.Contains(w.Body.String(), "secret") || strings.Contains(w.Body.String(), "0xabc") {
+		t.Fatal("response must not contain private key")
+	}
+
+	if w := doAdmin(t, &adminServiceStub{}, http.MethodPost, "/api/v1/admin/roles/"+roleID.String()+"/keys/import", `{}`); w.Code != http.StatusBadRequest {
+		t.Fatalf("no private key: code = %d", w.Code)
+	}
+	if w := doAdmin(t, &adminServiceStub{err: ErrKeyExists}, http.MethodPost, "/api/v1/admin/roles/"+roleID.String()+"/keys/import", `{"private_key":"0xabc"}`); w.Code != http.StatusConflict {
+		t.Fatalf("exists: code = %d", w.Code)
 	}
 }

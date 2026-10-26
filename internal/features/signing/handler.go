@@ -76,6 +76,7 @@ func (h *Handler) SignTransaction(c *gin.Context) {
 		KeyID:   keyID,
 		Network: network,
 		RawTx:   rawTx,
+		LeaseID: req.LeaseID,
 	})
 	if err != nil {
 		h.log.Error().Err(err).Str("key_id", keyID.String()).Msg("sign transaction")

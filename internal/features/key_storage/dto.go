@@ -51,6 +51,38 @@ type ListKeysQuery struct {
 	Limit       int     `form:"limit" binding:"omitempty,min=1,max=1000"`
 }
 
+type AcquireLeaseParams struct {
+	Service string
+	Purpose string
+	Label   string
+	Network constants.Network
+	Owner   string
+	TTL     time.Duration
+	Exclude []uuid.UUID
+}
+
+type AcquireLeaseRequest struct {
+	Network    string      `json:"network" binding:"required,network"`
+	Label      string      `json:"label"`
+	Owner      string      `json:"owner" binding:"max=128"`
+	TTLSeconds int         `json:"ttl_seconds" binding:"omitempty,min=1"`
+	Exclude    []uuid.UUID `json:"exclude"`
+}
+
+type ExtendLeaseRequest struct {
+	TTLSeconds int `json:"ttl_seconds" binding:"omitempty,min=1"`
+}
+
+type LeaseResponse struct {
+	LeaseID   uuid.UUID   `json:"lease_id"`
+	ExpiresAt time.Time   `json:"expires_at"`
+	Key       KeyResponse `json:"key"`
+}
+
+type ExtendLeaseResponse struct {
+	ExpiresAt time.Time `json:"expires_at"`
+}
+
 type GetRoleKeyParams struct {
 	Service string
 	Purpose string
@@ -64,32 +96,36 @@ type GetRoleKeyQuery struct {
 }
 
 type KeyResponse struct {
-	ID         uuid.UUID  `json:"id"`
-	Service    string     `json:"service"`
-	Purpose    string     `json:"purpose"`
-	Label      string     `json:"label"`
-	Network    string     `json:"network"`
-	Kind       string     `json:"kind"`
-	Alias      *string    `json:"alias,omitempty"`
-	Address    string     `json:"address"`
-	Status     string     `json:"status"`
-	ReplacedBy *uuid.UUID `json:"replaced_by,omitempty"` // new key after rotation
-	CreatedAt  time.Time  `json:"created_at"`
+	ID          uuid.UUID  `json:"id"`
+	Service     string     `json:"service"`
+	Purpose     string     `json:"purpose"`
+	Label       string     `json:"label"`
+	Network     string     `json:"network"`
+	Kind        string     `json:"kind"`
+	Alias       *string    `json:"alias,omitempty"`
+	Address     string     `json:"address"`
+	Status      string     `json:"status"`
+	ReplacedBy  *uuid.UUID `json:"replaced_by,omitempty"`
+	LeaseOwner  *string    `json:"lease_owner,omitempty"`
+	LeasedUntil *time.Time `json:"leased_until,omitempty"` // new key after rotation
+	CreatedAt   time.Time  `json:"created_at"`
 }
 
 func NewKeyResponse(key *WalletKey) KeyResponse {
 	return KeyResponse{
-		ID:         key.ID,
-		Service:    key.Role.Service,
-		Purpose:    key.Role.Purpose,
-		Label:      key.Role.Label,
-		Network:    key.Network.String(),
-		Kind:       key.Role.Kind.String(),
-		Alias:      key.Alias,
-		Address:    key.Address,
-		Status:     key.Status.String(),
-		ReplacedBy: key.ReplacedBy,
-		CreatedAt:  key.CreatedAt,
+		ID:          key.ID,
+		Service:     key.Role.Service,
+		Purpose:     key.Role.Purpose,
+		Label:       key.Role.Label,
+		Network:     key.Network.String(),
+		Kind:        key.Role.Kind.String(),
+		Alias:       key.Alias,
+		Address:     key.Address,
+		Status:      key.Status.String(),
+		ReplacedBy:  key.ReplacedBy,
+		LeaseOwner:  key.LeaseOwner,
+		LeasedUntil: key.LeasedUntil,
+		CreatedAt:   key.CreatedAt,
 	}
 }
 
@@ -108,6 +144,12 @@ type UpdatePolicyRequest struct {
 
 type ListRolesQuery struct {
 	Service string `form:"service"`
+}
+
+type ImportKeyRequest struct {
+	PrivateKey  string  `json:"private_key" binding:"required"` // hex, with or without 0x
+	Alias       *string `json:"alias"`
+	ExternalRef *string `json:"external_ref"` // only for deposit role
 }
 
 type CreateRoleKeyRequest struct {

@@ -19,6 +19,7 @@ type keyProvider interface {
 		service string,
 		keyID uuid.UUID,
 		network constants.Network,
+		leaseID *uuid.UUID,
 		check func(key *keystorage.WalletKey) error,
 		fn func(key *keystorage.WalletKey, privateKey []byte) error,
 	) error
@@ -59,7 +60,7 @@ func (s *Service) SignTransaction(ctx context.Context, params SignTransactionPar
 		signed SignedTransaction
 		rule   int
 	)
-	err = s.keys.UseSigningKey(ctx, params.Service, params.KeyID, params.Network,
+	err = s.keys.UseSigningKey(ctx, params.Service, params.KeyID, params.Network, params.LeaseID,
 		func(key *keystorage.WalletKey) error {
 			rule, err = s.checkPolicy(ctx, key, op)
 			return err

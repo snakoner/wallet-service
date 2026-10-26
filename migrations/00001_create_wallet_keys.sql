@@ -30,6 +30,9 @@ CREATE TABLE wallet_keys (
     updated_at TIMESTAMP NOT NULL,
     rotated_at TIMESTAMP DEFAULT NULL,
     revoked_at TIMESTAMP DEFAULT NULL,
+    lease_id UUID DEFAULT NULL, -- exclusive use of key by one service instance
+    lease_owner VARCHAR(128) DEFAULT NULL, -- instance that holds lease, for debugging
+    leased_until TIMESTAMP DEFAULT NULL, -- lease expires at, UTC
 
     CONSTRAINT wallet_keys_network_check CHECK (network IN (1, 2, 3)),
     CONSTRAINT wallet_keys_status_check CHECK (status IN (0, 1, 2, 3, 4)),
@@ -40,6 +43,8 @@ CREATE TABLE wallet_keys (
 CREATE INDEX idx_wallet_keys_role_status ON wallet_keys (role_id, status);
 
 CREATE INDEX idx_wallet_keys_kek_version ON wallet_keys (kek_version);
+
+CREATE UNIQUE INDEX wallet_keys_lease_id_unique ON wallet_keys (lease_id) WHERE lease_id IS NOT NULL;
 
 -- +goose Down
 DROP TABLE wallet_keys;

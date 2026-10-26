@@ -26,6 +26,25 @@ definitions:
       success:
         type: boolean
     type: object
+  key_storage.AcquireLeaseRequest:
+    properties:
+      exclude:
+        items:
+          type: string
+        type: array
+      label:
+        type: string
+      network:
+        type: string
+      owner:
+        maxLength: 128
+        type: string
+      ttl_seconds:
+        minimum: 1
+        type: integer
+    required:
+    - network
+    type: object
   key_storage.CreateRoleKeyRequest:
     properties:
       alias:
@@ -58,6 +77,30 @@ definitions:
     - purpose
     - service
     type: object
+  key_storage.ExtendLeaseRequest:
+    properties:
+      ttl_seconds:
+        minimum: 1
+        type: integer
+    type: object
+  key_storage.ExtendLeaseResponse:
+    properties:
+      expires_at:
+        type: string
+    type: object
+  key_storage.ImportKeyRequest:
+    properties:
+      alias:
+        type: string
+      external_ref:
+        description: only for deposit role
+        type: string
+      private_key:
+        description: hex, with or without 0x
+        type: string
+    required:
+    - private_key
+    type: object
   key_storage.KeyResponse:
     properties:
       address:
@@ -72,16 +115,29 @@ definitions:
         type: string
       label:
         type: string
+      lease_owner:
+        type: string
+      leased_until:
+        description: new key after rotation
+        type: string
       network:
         type: string
       purpose:
         type: string
       replaced_by:
-        description: new key after rotation
         type: string
       service:
         type: string
       status:
+        type: string
+    type: object
+  key_storage.LeaseResponse:
+    properties:
+      expires_at:
+        type: string
+      key:
+        $ref: '#/definitions/key_storage.KeyResponse'
+      lease_id:
         type: string
     type: object
   key_storage.RoleResponse:
@@ -110,13 +166,60 @@ definitions:
     required:
     - policy
     type: object
+  service_client.ClientResponse:
+    properties:
+      created_at:
+        type: string
+      expires_at:
+        type: string
+      id:
+        type: string
+      replaced_by:
+        type: string
+      revoked_at:
+        type: string
+      service:
+        type: string
+      state:
+        type: string
+    type: object
+  service_client.CreateClientRequest:
+    properties:
+      service:
+        type: string
+    required:
+    - service
+    type: object
+  service_client.IssuedKeyResponse:
+    properties:
+      client:
+        $ref: '#/definitions/service_client.ClientResponse'
+      old_client:
+        $ref: '#/definitions/service_client.ClientResponse'
+      service_key:
+        description: shown once, only hash is stored
+        type: string
+    type: object
+  service_client.RotateClientRequest:
+    properties:
+      grace_seconds:
+        description: default 24h, 0 rejects old key at once
+        minimum: 0
+        type: integer
+      service:
+        type: string
+    required:
+    - service
+    type: object
   signing.SignTransactionRequest:
     properties:
+      lease_id:
+        description: 'required for pool keys // hex of unsigned tx: ethereum - types.Transaction.MarshalBinary,
+          tron - raw_data_hex'
+        type: string
       network:
         type: string
       raw_tx:
-        description: 'hex of unsigned tx: ethereum - types.Transaction.MarshalBinary,
-          tron - raw_data_hex'
         type: string
     required:
     - network
@@ -281,6 +384,28 @@ paths:
           schema:
             $ref: '#/definitions/httputil.ErrorResponse'
       summary: Enable disabled key
+      tags:
+      - admin
+  /api/v1/admin/keys/{id}/release-lease:
+    post:
+      parameters:
+      - description: Key id
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/httputil.Response'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httputil.ErrorResponse'
+      summary: Force release lease of key held by stuck instance
       tags:
       - admin
   /api/v1/admin/keys/{id}/revoke:
@@ -479,6 +604,51 @@ paths:
       summary: Generate new key of role
       tags:
       - admin
+  /api/v1/admin/roles/{id}/keys/import:
+    post:
+      consumes:
+      - application/json
+      description: 'For keys moved from service env. Private key travels in request
+        body: use only over TLS without body logging.'
+      parameters:
+      - description: Role id
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Private key
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/key_storage.ImportKeyRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httputil.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/key_storage.KeyResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httputil.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httputil.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/httputil.ErrorResponse'
+      summary: Import existing private key into role
+      tags:
+      - admin
   /api/v1/admin/roles/{id}/policy:
     put:
       consumes:
@@ -518,6 +688,121 @@ paths:
           schema:
             $ref: '#/definitions/httputil.ErrorResponse'
       summary: Replace signing policy of role
+      tags:
+      - admin
+  /api/v1/admin/service-clients:
+    get:
+      parameters:
+      - description: Service name, all services when empty
+        in: query
+        name: service
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httputil.Response'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/service_client.ClientResponse'
+                  type: array
+              type: object
+      summary: List service keys without hashes
+      tags:
+      - admin
+    post:
+      consumes:
+      - application/json
+      description: Key is shown once, only its hash is stored. Service with active
+        key must be rotated instead.
+      parameters:
+      - description: Service
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/service_client.CreateClientRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httputil.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/service_client.IssuedKeyResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httputil.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/httputil.ErrorResponse'
+      summary: Register service and issue its X-Service-Key
+      tags:
+      - admin
+  /api/v1/admin/service-clients/{id}/revoke:
+    post:
+      parameters:
+      - description: Service client id
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/httputil.Response'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httputil.ErrorResponse'
+      summary: Reject service key at once
+      tags:
+      - admin
+  /api/v1/admin/service-clients/rotate:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Service and grace period
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/service_client.RotateClientRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httputil.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/service_client.IssuedKeyResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httputil.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httputil.ErrorResponse'
+      summary: Issue new X-Service-Key, old one is accepted for grace period
       tags:
       - admin
   /api/v1/keys/{id}/sign-transaction:
@@ -574,6 +859,74 @@ paths:
       summary: Sign transaction
       tags:
       - signing
+  /api/v1/leases/{id}:
+    delete:
+      parameters:
+      - description: Lease id
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/httputil.Response'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httputil.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/httputil.ErrorResponse'
+      security:
+      - ServiceKey: []
+      summary: Release own lease
+      tags:
+      - keys
+  /api/v1/leases/{id}/extend:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Lease id
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: TTL
+        in: body
+        name: request
+        schema:
+          $ref: '#/definitions/key_storage.ExtendLeaseRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httputil.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/key_storage.ExtendLeaseResponse'
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httputil.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/httputil.ErrorResponse'
+      security:
+      - ServiceKey: []
+      summary: Extend own lease
+      tags:
+      - keys
   /api/v1/roles/{purpose}/key:
     get:
       description: Returns current key of role, e.g. gas station. Key changes after
@@ -670,6 +1023,57 @@ paths:
       security:
       - ServiceKey: []
       summary: List keys of own role
+      tags:
+      - keys
+  /api/v1/roles/{purpose}/lease:
+    post:
+      consumes:
+      - application/json
+      description: Key is used exclusively by caller until lease expires or is released.
+        Pool keys sign only with lease.
+      parameters:
+      - description: Role purpose, e.g. executor
+        in: path
+        name: purpose
+        required: true
+        type: string
+      - description: Lease params
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/key_storage.AcquireLeaseRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httputil.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/key_storage.LeaseResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httputil.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httputil.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httputil.ErrorResponse'
+        "409":
+          description: NO_FREE_KEY, retry after Retry-After seconds
+          schema:
+            $ref: '#/definitions/httputil.ErrorResponse'
+      security:
+      - ServiceKey: []
+      summary: Lease free key of own role
       tags:
       - keys
 securityDefinitions:

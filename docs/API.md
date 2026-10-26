@@ -1,6 +1,6 @@
 # Wallet Service: что уже сделано в API
 
-Обновлено: 23.10.2026. Документ обновляется после каждого изменения ручек.
+Обновлено: 26.10.2026. Документ обновляется после каждого изменения ручек.
 
 ## Общее
 
@@ -83,13 +83,15 @@ curl -s "http://localhost:8080/api/v1/roles/executor/keys?network=ethereum" \
 
 ### `POST /api/v1/keys/{id}/sign-transaction` — подписать транзакцию
 
-Авторизация: `X-Service-Key`. **Сейчас в роутере `serviceAuth` на группе `/keys` закомментирован, поэтому ручка всегда отвечает 401.**
+Авторизация: `X-Service-Key`.
 
 Транзакцию собирает и отправляет сервис, wallet только проверяет и подписывает.
 
 ```json
-{"network": "ethereum", "raw_tx": "0x…"}
+{"network": "ethereum", "raw_tx": "0x…", "lease_id": "…"}
 ```
+
+`lease_id` обязателен для ключей pool-роли; для single/deposit — только если ключ сейчас арендован.
 
 | Сеть | `raw_tx` | `signed_tx` в ответе | `tx_hash` |
 |---|---|---|---|
@@ -100,7 +102,8 @@ curl -s "http://localhost:8080/api/v1/roles/executor/keys?network=ethereum" \
 - tx разбирается в операцию `native` / `token` / `contract_call`:
   - ETH/Arbitrum: chainID EIP-1559 tx совпадает с `ETH_CHAIN_ID` / `ARBITRUM_CHAIN_ID`, создание контракта запрещено;
   - TRON: ровно один контракт, `expiration` не прошёл, только `TransferContract` и `TriggerSmartContract` (остальные типы, в т.ч. `AccountPermissionUpdateContract`, запрещены), `call_token_value` (TRC10) запрещён;
-- ключ принадлежит сервису (иначе 404), сеть ключа совпадает с `network`, статус `active` или `rotating`;
+- ключ принадлежит сервису (иначе 404), сеть ключа совпадает с `network`, статус `active`, `pending` или `rotating`;
+- аренда: pool-ключ — только с живой арендой (`lease_id`); арендованный ключ любой роли — только с её `lease_id`;
 - TRON: `owner_address` tx = адрес ключа;
 - операция разрешена политикой роли ([POLICY.md](POLICY.md)).
 
@@ -108,7 +111,43 @@ curl -s "http://localhost:8080/api/v1/roles/executor/keys?network=ethereum" \
 {"success":true,"data":{"signed_tx":"0x…","tx_hash":"0x…"}}
 ```
 
-Ошибки: `INVALID_TRANSACTION` (400, в т.ч. чужой `owner_address`), `UNSUPPORTED_NETWORK` (400), `INVALID_PARAMS` (400, сеть ключа другая), `VALIDATION_FAILED` (400), `POLICY_VIOLATION` (403), `KEY_NOT_FOUND` (404), `KEY_NOT_ACTIVE` (409), `UNAUTHORIZED` (401).
+Ошибки: `INVALID_TRANSACTION` (400, в т.ч. чужой `owner_address`), `UNSUPPORTED_NETWORK` (400), `INVALID_PARAMS` (400, сеть ключа другая), `VALIDATION_FAILED` (400), `POLICY_VIOLATION` (403), `KEY_NOT_FOUND` (404), `KEY_NOT_ACTIVE` (409), `LEASE_REQUIRED` (409, pool-ключ без аренды), `LEASE_EXPIRED` (409, аренда истекла или чужая), `KEY_LEASED` (409, ключ арендован другим экземпляром), `UNAUTHORIZED` (401).
+
+### Аренда ключей (lease)
+
+Ключ арендуется одним экземпляром сервиса на время «выбрал → собрал tx → подписал → отправил». Пока аренда жива, подписать ключом можно только с её `lease_id`. Упавший экземпляр держит ключ не дольше TTL.
+
+#### `POST /api/v1/roles/{purpose}/lease` — арендовать свободный ключ
+
+```json
+{"network": "ethereum", "label": "", "owner": "exchange-7d9f-abc", "ttl_seconds": 60, "exclude": ["<key_id>"]}
+```
+
+| Поле | |
+|---|---|
+| `network` | обязательно |
+| `label` | роль, по умолчанию `''` |
+| `owner` | кто держит, для отладки (имя пода), до 128 символов |
+| `ttl_seconds` | по умолчанию 60, максимум 600 |
+| `exclude` | ключи, которые не выдавать (например, без газа) |
+
+Выдаётся `active`-ключ без живой аренды, первым — дольше всех не использованный. Для `single` и `pool`; deposit — `INVALID_PARAMS`.
+
+```json
+{"success":true,"data":{"lease_id":"…","expires_at":"…","key":{"id":"…","address":"0x…","status":"active","…":"…"}}}
+```
+
+Ошибки: `NO_FREE_KEY` (409, с заголовком `Retry-After`), `ROLE_NOT_FOUND` (404), `VALIDATION_FAILED` (400), `INVALID_PARAMS` (400, deposit-роль).
+
+#### `POST /api/v1/leases/{lease_id}/extend` — продлить
+
+Тело необязательное: `{"ttl_seconds": 60}`. Ответ: `{"expires_at": "…"}`. Ошибка: `LEASE_EXPIRED` (409) — аренда истекла, освобождена или чужая.
+
+#### `DELETE /api/v1/leases/{lease_id}` — освободить
+
+Ошибка: `LEASE_EXPIRED` (409) — аренда уже освобождена или чужая.
+
+Порядок работы сервиса: lease → проверить газ (мало — release и lease с `exclude`) → nonce с тегом `pending` → sign с `lease_id` → отправить → release. Ждать подтверждения под арендой не нужно.
 
 ## Admin API
 
@@ -178,6 +217,31 @@ curl -s "http://localhost:8080/api/v1/admin/keys?service=exchange&purpose=execut
 
 `replaced_by` есть и в ответах сервисных ручек `/roles/{purpose}/key(s)`.
 
+### `POST /api/v1/admin/keys/{id}/release-lease` — снять аренду
+
+Освобождает ключ, который держит зависший экземпляр сервиса. Ошибка: `KEY_NOT_FOUND` (404).
+
+### `POST /api/v1/admin/roles/{id}/keys/import` — импортировать существующий ключ
+
+```json
+{"private_key": "0x…", "alias": "migrated from env", "external_ref": "order-1"}
+```
+
+`private_key` — hex, с `0x` или без; `external_ref` — только для deposit. Ключ создаётся `active`. Ошибки как у создания ключа, плюс `INVALID_PARAMS` (400) для неверного ключа и `KEY_EXISTS` (409), если адрес уже есть. Приватный ключ передаётся в теле: только по TLS и без логирования тел запросов.
+
+### Ключи сервисов (`X-Service-Key`)
+
+| Метод | Путь | Тело | Ответ |
+|---|---|---|---|
+| POST | `/api/v1/admin/service-clients` | `{"service": "exchange"}` | `service_key` (показывается один раз) и `client` |
+| POST | `/api/v1/admin/service-clients/rotate` | `{"service": "exchange", "grace_seconds": 86400}` | новый `service_key`, `client`, `old_client` с `expires_at` |
+| POST | `/api/v1/admin/service-clients/{id}/revoke` | — | |
+| GET | `/api/v1/admin/service-clients?service=` | — | список без хэшей |
+
+`grace_seconds` по умолчанию 86400 (24 часа); `0` — старый ключ отключается сразу. `client.state`: `primary`, `expiring`, `expired`, `revoked`.
+
+Ошибки: `SERVICE_CLIENT_EXISTS` (409, у сервиса уже есть основной ключ — нужна ротация), `SERVICE_CLIENT_NOT_FOUND` (404), `VALIDATION_FAILED` (400).
+
 ## Ротация ключей
 
 Новый ключ — новый адрес, поэтому ротация идёт по шагам, без простоя сервисов:
@@ -223,9 +287,10 @@ wallet-admin set-policy -role <role_id> -policy policy.json
 wallet-admin create-key -role <role_id> [-alias name] [-external-ref order-1]
 echo "<private key hex>" | wallet-admin import-key -role <role_id> [-alias name] [-external-ref order-1]
 wallet-admin rotate-key | activate-key | revoke-key | disable-key | enable-key -id <key_id>
+wallet-admin release-lease -id <key_id>
 ```
 
-`import-key` — перенос существующих ключей из env сервисов. По HTTP импорта нет специально. В production admin API нет, политику там меняют только через `set-policy`.
+`import-key` — перенос существующих ключей из env сервисов. В production admin API нет, там всё делается через CLI.
 
 ## Инструменты
 
@@ -256,7 +321,6 @@ make test-integration   # интеграционные: поднимает docke
 | Что | Статус |
 |---|---|
 | Лимиты за период и проверка аргументов `contract_call` в политике | после аудита, см. [POLICY.md](POLICY.md) §7 |
-| Lease для pool-ролей (executor'ы) | шаг 3 |
 | Создание deposit-ключей сервисом через API, поиск по `external_ref` | шаг 4 |
 | Несколько KEK и перешифровка (`rewrap-keys`) | следующий шаг |
 | Go-клиент `pkg/client` для сервисов | шаг 6 |

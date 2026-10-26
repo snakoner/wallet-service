@@ -89,13 +89,15 @@ func main() {
 		},
 	)
 
+	serviceClientService := serviceclient.NewService(log, serviceclient.NewRepository(), txm)
+
 	handlers := &app.Handlers{
-		KeyStorage: keystorage.NewHandler(keyStorageService, log),
-		Admin:      keystorage.NewAdminHandler(keyStorageService, log),
-		Signing:    signing.NewHandler(signingService, log),
+		KeyStorage:   keystorage.NewHandler(keyStorageService, log),
+		Admin:        keystorage.NewAdminHandler(keyStorageService, log),
+		ClientsAdmin: serviceclient.NewAdminHandler(serviceClientService, log),
+		Signing:      signing.NewHandler(signingService, log),
 	}
 
-	serviceClientService := serviceclient.NewService(log, serviceclient.NewRepository(), txm)
 	serviceAuth := middleware.NewServiceAuth(serviceClientService, log)
 
 	router := app.NewRouter(handlers, cfg, log, serviceAuth)

@@ -84,6 +84,9 @@ Keys:
   disable-key / enable-key  stop signing with active key until enable
       -id <key_id>
 
+  release-lease           free key held by stuck service instance
+      -id <key_id>
+
   import-key              import existing private key (hex) read from stdin
       -role <role_id>
       -alias <name>
@@ -126,6 +129,8 @@ func main() {
 		setPolicy(os.Args[2:])
 	case "list-keys":
 		listKeys(os.Args[2:])
+	case "release-lease":
+		releaseLease(os.Args[2:])
 	case "rotate-key", "activate-key", "revoke-key", "disable-key", "enable-key":
 		keyAction(os.Args[1], os.Args[2:])
 	case "create-key":
@@ -258,15 +263,7 @@ func listServiceClients(args []string) {
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(w, "SERVICE_CLIENT_ID\tSERVICE\tSTATE\tEXPIRES_AT\tREPLACED_BY\tCREATED_AT")
 	for _, client := range clients {
-		state, expiresAt, replacedBy := "primary", "", ""
-		switch {
-		case !client.IsActive:
-			state = "revoked"
-		case client.ExpiresAt != nil && !client.ExpiresAt.After(now):
-			state = "expired"
-		case client.ExpiresAt != nil:
-			state = "expiring"
-		}
+		state, expiresAt, replacedBy := client.State(now), "", ""
 		if client.ExpiresAt != nil {
 			expiresAt = client.ExpiresAt.Format(time.DateTime)
 		}
@@ -429,7 +426,7 @@ func listKeys(args []string) {
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "KEY_ID\tSERVICE\tPURPOSE\tLABEL\tNETWORK\tKIND\tADDRESS\tSTATUS\tREPLACED_BY\tEXTERNAL_REF\tCREATED_AT")
+	fmt.Fprintln(w, "KEY_ID\tSERVICE\tPURPOSE\tLABEL\tNETWORK\tKIND\tADDRESS\tSTATUS\tREPLACED_BY\tLEASED_BY\tEXTERNAL_REF\tCREATED_AT")
 	for _, key := range keys {
 		externalRef := ""
 		if key.ExternalRef != nil {
@@ -441,11 +438,37 @@ func listKeys(args []string) {
 			replacedBy = key.ReplacedBy.String()
 		}
 
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+		leasedBy := ""
+		if key.LeaseOwner != nil && key.LeasedUntil != nil && key.LeasedUntil.After(time.Now().UTC()) {
+			leasedBy = *key.LeaseOwner + " until " + key.LeasedUntil.Format(time.TimeOnly)
+		}
+
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			key.ID, key.Role.Service, key.Role.Purpose, key.Role.Label, key.Network, key.Role.Kind,
-			key.Address, key.Status, replacedBy, externalRef, key.CreatedAt.Format(time.DateTime))
+			key.Address, key.Status, replacedBy, leasedBy, externalRef, key.CreatedAt.Format(time.DateTime))
 	}
 	_ = w.Flush()
+}
+
+func releaseLease(args []string) {
+	fs := flag.NewFlagSet("release-lease", flag.ExitOnError)
+	id := fs.String("id", "", "key id")
+	_ = fs.Parse(args)
+
+	ctx := context.Background()
+	a := newAdmin(ctx)
+	defer a.pool.Close()
+
+	keyID, err := uuid.Parse(*id)
+	if err != nil {
+		a.log.Fatal().Str("id", *id).Msg("invalid key id")
+	}
+
+	if err := a.keyStorage().ForceReleaseLease(ctx, keyID); err != nil {
+		a.log.Fatal().Err(err).Msg("failed to release lease")
+	}
+
+	fmt.Printf("lease of key %s released\n", keyID)
 }
 
 func keyAction(command string, args []string) {

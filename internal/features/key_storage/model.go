@@ -94,8 +94,18 @@ type WalletKey struct {
 	KEKVersion         int32
 	ReplacedBy         *uuid.UUID // new key after rotation
 	ReplacementAddress *string
+	LeaseID            *uuid.UUID
+	LeaseOwner         *string
+	LeasedUntil        *time.Time
+	LeaseActive        bool // lease exists and not expired, loaded only for signing
 	CreatedAt          time.Time
 	UpdatedAt          time.Time
 	RotatedAt          *time.Time
 	RevokedAt          *time.Time
+}
+
+type Lease struct {
+	ID        uuid.UUID
+	ExpiresAt time.Time
+	Key       WalletKey
 }
