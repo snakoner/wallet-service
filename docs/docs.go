@@ -1141,6 +1141,82 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/roles/{purpose}/deposit-key": {
+            "post": {
+                "security": [
+                    {
+                        "ServiceKey": []
+                    }
+                ],
+                "description": "Returns key bound to external_ref (e.g. order id). Key is created on first call, repeated calls return the same key.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "keys"
+                ],
+                "summary": "Get or create deposit key of own deposit role",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Role purpose, e.g. deposit",
+                        "name": "purpose",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Deposit key params",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/key_storage.GetDepositKeyRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/httputil.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/key_storage.KeyResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httputil.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httputil.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httputil.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/roles/{purpose}/key": {
             "get": {
                 "security": [
@@ -1514,6 +1590,29 @@ const docTemplate = `{
                 }
             }
         },
+        "key_storage.GetDepositKeyRequest": {
+            "type": "object",
+            "required": [
+                "external_ref",
+                "network"
+            ],
+            "properties": {
+                "alias": {
+                    "type": "string",
+                    "maxLength": 128
+                },
+                "external_ref": {
+                    "type": "string",
+                    "maxLength": 128
+                },
+                "label": {
+                    "type": "string"
+                },
+                "network": {
+                    "type": "string"
+                }
+            }
+        },
         "key_storage.ImportKeyRequest": {
             "type": "object",
             "required": [
@@ -1543,6 +1642,9 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "created_at": {
+                    "type": "string"
+                },
+                "external_ref": {
                     "type": "string"
                 },
                 "id": {

@@ -17,6 +17,7 @@ import (
 type KeyStorageService interface {
 	GetRoleKey(ctx context.Context, params GetRoleKeyParams) (*WalletKey, error)
 	GetRoleKeys(ctx context.Context, params GetRoleKeyParams) ([]WalletKey, error)
+	GetDepositKey(ctx context.Context, params GetDepositKeyParams) (*WalletKey, error)
 	AcquireLease(ctx context.Context, params AcquireLeaseParams) (*Lease, error)
 	ExtendLease(ctx context.Context, service string, leaseID uuid.UUID, ttl time.Duration) (time.Time, error)
 	ReleaseLease(ctx context.Context, service string, leaseID uuid.UUID) error
@@ -117,6 +118,52 @@ func (h *Handler) GetRoleKeys(c *gin.Context) {
 	}
 
 	httputil.OK(c, NewKeysResponse(keys))
+}
+
+// GetDepositKey godoc
+// @Summary     Get or create deposit key of own deposit role
+// @Description Returns key bound to external_ref (e.g. order id). Key is created on first call, repeated calls return the same key.
+// @Tags        keys
+// @Accept      json
+// @Produce     json
+// @Param       purpose path string                                true "Role purpose, e.g. deposit"
+// @Param       request body key_storage.GetDepositKeyRequest true "Deposit key params"
+// @Success     200 {object} httputil.Response{data=key_storage.KeyResponse}
+// @Failure     400 {object} httputil.ErrorResponse
+// @Failure     401 {object} httputil.ErrorResponse
+// @Failure     404 {object} httputil.ErrorResponse
+// @Security    ServiceKey
+// @Router      /api/v1/roles/{purpose}/deposit-key [post]
+func (h *Handler) GetDepositKey(c *gin.Context) {
+	service, err := middleware.GetService(c)
+	if err != nil {
+		httputil.Fail(c, err)
+		return
+	}
+
+	var req GetDepositKeyRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		httputil.BadRequestValidation(c, err)
+		return
+	}
+
+	network, _ := constants.ParseNetwork(req.Network)
+
+	key, err := h.service.GetDepositKey(c.Request.Context(), GetDepositKeyParams{
+		Service:     service,
+		Purpose:     c.Param("purpose"),
+		Label:       req.Label,
+		Network:     network,
+		ExternalRef: req.ExternalRef,
+		Alias:       req.Alias,
+	})
+	if err != nil {
+		h.log.Error().Err(err).Str("purpose", c.Param("purpose")).Str("external_ref", req.ExternalRef).Msg("get deposit key")
+		httputil.Fail(c, err)
+		return
+	}
+
+	httputil.OK(c, NewKeyResponse(key))
 }
 
 // AcquireLease godoc

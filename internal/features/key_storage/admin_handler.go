@@ -324,7 +324,10 @@ func (h *AdminHandler) keyAction(c *gin.Context, action string, do func(ctx cont
 
 	key, err := do(c.Request.Context(), keyID)
 	if err != nil {
-		h.log.Error().Err(err).Str("key_id", keyID.String()).Msg("admin " + action + " key")
+		h.log.Error().
+			Err(err).
+			Str("key_id", keyID.String()).
+			Msg("admin " + action + " key")
 		httputil.Fail(c, err)
 		return
 	}
@@ -348,7 +351,10 @@ func (h *AdminHandler) ReleaseLease(c *gin.Context) {
 	}
 
 	if err := h.service.ForceReleaseLease(c.Request.Context(), keyID); err != nil {
-		h.log.Error().Err(err).Str("key_id", keyID.String()).Msg("admin release lease")
+		h.log.Error().
+			Err(err).
+			Str("key_id", keyID.String()).
+			Msg("admin release lease")
 		httputil.Fail(c, err)
 		return
 	}
@@ -389,7 +395,10 @@ func (h *AdminHandler) ImportKey(c *gin.Context) {
 		ExternalRef: req.ExternalRef,
 	})
 	if err != nil {
-		h.log.Error().Err(err).Str("role_id", roleID.String()).Msg("admin import key")
+		h.log.Error().
+			Err(err).
+			Str("role_id", roleID.String()).
+			Msg("admin import key")
 		httputil.Fail(c, err)
 		return
 	}

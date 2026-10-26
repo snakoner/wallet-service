@@ -35,29 +35,27 @@ func NewRouter(
 
 	api := r.Group("/api/v1")
 	{
-		// TODO: SSO admin auth; until then admin API is not available in production
-		if constants.Environment(cfg.App.Environment) != constants.EnvironmentProduction {
-			admin := api.Group("/admin")
-			{
-				admin.POST("/roles", handlers.Admin.CreateRole)
-				admin.GET("/roles", handlers.Admin.ListRoles)
-				admin.PUT("/roles/:id/policy", handlers.Admin.UpdatePolicy)
-				admin.POST("/roles/:id/keys", handlers.Admin.CreateKey)
-				admin.POST("/roles/:id/keys/import", handlers.Admin.ImportKey)
-				admin.GET("/roles/:id/keys", handlers.Admin.ListRoleKeys)
-				admin.GET("/keys", handlers.Admin.ListKeys)
-				admin.POST("/keys/:id/rotate", handlers.Admin.RotateKey)
-				admin.POST("/keys/:id/activate", handlers.Admin.ActivateKey)
-				admin.POST("/keys/:id/revoke", handlers.Admin.RevokeKey)
-				admin.POST("/keys/:id/disable", handlers.Admin.DisableKey)
-				admin.POST("/keys/:id/enable", handlers.Admin.EnableKey)
-				admin.POST("/keys/:id/release-lease", handlers.Admin.ReleaseLease)
+		admin := api.Group("/admin")
+		{
+			admin.POST("/roles", handlers.Admin.CreateRole)
+			admin.GET("/roles", handlers.Admin.ListRoles)
+			admin.PUT("/roles/:id/policy", handlers.Admin.UpdatePolicy)
+			admin.POST("/roles/:id/keys", handlers.Admin.CreateKey)
+			admin.POST("/roles/:id/keys/import", handlers.Admin.ImportKey)
+			admin.GET("/roles/:id/keys", handlers.Admin.ListRoleKeys)
 
-				admin.POST("/service-clients", handlers.ClientsAdmin.CreateClient)
-				admin.GET("/service-clients", handlers.ClientsAdmin.ListClients)
-				admin.POST("/service-clients/rotate", handlers.ClientsAdmin.RotateClient)
-				admin.POST("/service-clients/:id/revoke", handlers.ClientsAdmin.RevokeClient)
-			}
+			admin.GET("/keys", handlers.Admin.ListKeys)
+			admin.POST("/keys/:id/rotate", handlers.Admin.RotateKey)
+			admin.POST("/keys/:id/activate", handlers.Admin.ActivateKey)
+			admin.POST("/keys/:id/revoke", handlers.Admin.RevokeKey)
+			admin.POST("/keys/:id/disable", handlers.Admin.DisableKey)
+			admin.POST("/keys/:id/enable", handlers.Admin.EnableKey)
+			admin.POST("/keys/:id/release-lease", handlers.Admin.ReleaseLease)
+
+			admin.POST("/service-clients", handlers.ClientsAdmin.CreateClient)
+			admin.GET("/service-clients", handlers.ClientsAdmin.ListClients)
+			admin.POST("/service-clients/rotate", handlers.ClientsAdmin.RotateClient)
+			admin.POST("/service-clients/:id/revoke", handlers.ClientsAdmin.RevokeClient)
 		}
 
 		roles := api.Group("/roles", serviceAuth.Handle())
@@ -65,6 +63,7 @@ func NewRouter(
 			roles.GET("/:purpose/key", handlers.KeyStorage.GetRoleKey)
 			roles.GET("/:purpose/keys", handlers.KeyStorage.GetRoleKeys)
 			roles.POST("/:purpose/lease", handlers.KeyStorage.AcquireLease)
+			roles.POST("/:purpose/deposit-key", handlers.KeyStorage.GetDepositKey)
 		}
 
 		leases := api.Group("/leases", serviceAuth.Handle())

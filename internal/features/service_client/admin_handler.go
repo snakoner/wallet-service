@@ -52,7 +52,11 @@ func (h *AdminHandler) CreateClient(c *gin.Context) {
 		return
 	}
 
-	httputil.OK(c, IssuedKeyResponse{ServiceKey: key, Client: NewClientResponse(client, time.Now().UTC())})
+	httputil.OK(c,
+		IssuedKeyResponse{
+			ServiceKey: key,
+			Client:     NewClientResponse(client, time.Now().UTC()),
+		})
 }
 
 // RotateClient godoc
@@ -86,7 +90,12 @@ func (h *AdminHandler) RotateClient(c *gin.Context) {
 
 	now := time.Now().UTC()
 	oldResponse := NewClientResponse(old, now)
-	httputil.OK(c, IssuedKeyResponse{ServiceKey: key, Client: NewClientResponse(client, now), OldClient: &oldResponse})
+	httputil.OK(c,
+		IssuedKeyResponse{
+			ServiceKey: key,
+			Client:     NewClientResponse(client, now),
+			OldClient:  &oldResponse},
+	)
 }
 
 // RevokeClient godoc

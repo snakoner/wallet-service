@@ -374,6 +374,53 @@ func (r *Repository) GetActiveKey(ctx context.Context, tx db.DBTX, roleID uuid.U
 	return &key, nil
 }
 
+func (r *Repository) GetKeyByExternalRef(ctx context.Context, tx db.DBTX, roleID uuid.UUID, externalRef string) (*WalletKey, error) {
+	var key WalletKey
+	err := tx.QueryRow(ctx, `
+		SELECT
+			id,
+			role_id,
+			network,
+			alias,
+			address,
+			external_ref,
+			status,
+			kek_version,
+			replaced_by,
+			created_at,
+			updated_at,
+			rotated_at,
+			revoked_at
+		FROM wallet_keys
+		WHERE role_id = $1 AND external_ref = $2`,
+		roleID,
+		externalRef,
+	).Scan(
+		&key.ID,
+		&key.RoleID,
+		&key.Network,
+		&key.Alias,
+		&key.Address,
+		&key.ExternalRef,
+		&key.Status,
+		&key.KEKVersion,
+		&key.ReplacedBy,
+		&key.CreatedAt,
+		&key.UpdatedAt,
+		&key.RotatedAt,
+		&key.RevokedAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrKeyNotFound
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("select wallet key by external ref: %w", err)
+	}
+
+	return &key, nil
+}
+
 func (r *Repository) ListRoleKeys(ctx context.Context, tx db.DBTX, roleID uuid.UUID) ([]WalletKey, error) {
 	rows, err := tx.Query(ctx, `
 		SELECT

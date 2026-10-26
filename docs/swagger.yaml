@@ -88,6 +88,22 @@ definitions:
       expires_at:
         type: string
     type: object
+  key_storage.GetDepositKeyRequest:
+    properties:
+      alias:
+        maxLength: 128
+        type: string
+      external_ref:
+        maxLength: 128
+        type: string
+      label:
+        type: string
+      network:
+        type: string
+    required:
+    - external_ref
+    - network
+    type: object
   key_storage.ImportKeyRequest:
     properties:
       alias:
@@ -108,6 +124,8 @@ definitions:
       alias:
         type: string
       created_at:
+        type: string
+      external_ref:
         type: string
       id:
         type: string
@@ -925,6 +943,53 @@ paths:
       security:
       - ServiceKey: []
       summary: Extend own lease
+      tags:
+      - keys
+  /api/v1/roles/{purpose}/deposit-key:
+    post:
+      consumes:
+      - application/json
+      description: Returns key bound to external_ref (e.g. order id). Key is created
+        on first call, repeated calls return the same key.
+      parameters:
+      - description: Role purpose, e.g. deposit
+        in: path
+        name: purpose
+        required: true
+        type: string
+      - description: Deposit key params
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/key_storage.GetDepositKeyRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httputil.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/key_storage.KeyResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httputil.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httputil.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httputil.ErrorResponse'
+      security:
+      - ServiceKey: []
+      summary: Get or create deposit key of own deposit role
       tags:
       - keys
   /api/v1/roles/{purpose}/key:

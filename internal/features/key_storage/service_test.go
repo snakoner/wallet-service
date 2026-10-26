@@ -251,6 +251,15 @@ func (r *repoStub) GetActiveKey(_ context.Context, _ db.DBTX, roleID uuid.UUID) 
 	return nil, ErrKeyNotFound
 }
 
+func (r *repoStub) GetKeyByExternalRef(_ context.Context, _ db.DBTX, roleID uuid.UUID, externalRef string) (*WalletKey, error) {
+	for _, key := range r.keys {
+		if key.RoleID == roleID && key.ExternalRef != nil && *key.ExternalRef == externalRef {
+			return key, nil
+		}
+	}
+	return nil, ErrKeyNotFound
+}
+
 type txmStub struct{}
 
 func (txmStub) WithTx(ctx context.Context, fn func(ctx context.Context, tx db.DBTX) error) error {
@@ -461,6 +470,51 @@ func TestGetRoleKey(t *testing.T) {
 
 	if _, err := srv.GetRoleKey(ctx, GetRoleKeyParams{Service: "banknote", Purpose: "gas_station", Label: "single", Network: constants.NetworkTron}); !errors.Is(err, ErrRoleNotFound) {
 		t.Fatalf("other service: err = %v", err)
+	}
+}
+
+func TestGetDepositKey(t *testing.T) {
+	repo := &repoStub{}
+	srv := newTestService(t, repo)
+	ctx := context.Background()
+
+	createTestRole(t, srv, constants.NetworkTron, RoleKindDeposit)
+	params := GetDepositKeyParams{Service: "exchange", Purpose: "gas_station", Label: "deposit", Network: constants.NetworkTron, ExternalRef: " order-1 "}
+
+	created, err := srv.GetDepositKey(ctx, params)
+	if err != nil {
+		t.Fatalf("GetDepositKey() error = %v", err)
+	}
+	if *created.ExternalRef != "order-1" || created.Status != KeyStatusActive || created.Role.Kind != RoleKindDeposit {
+		t.Fatalf("key = %+v", created)
+	}
+
+	again, err := srv.GetDepositKey(ctx, params)
+	if err != nil || again.ID != created.ID || again.Role.Service != "exchange" || len(repo.keys) != 1 {
+		t.Fatalf("repeated call: key = %+v, err = %v, keys = %d", again, err, len(repo.keys))
+	}
+
+	params.ExternalRef = "order-2"
+	other, err := srv.GetDepositKey(ctx, params)
+	if err != nil || other.ID == created.ID || other.Address == created.Address {
+		t.Fatalf("other ref: key = %+v, err = %v", other, err)
+	}
+
+	createTestRole(t, srv, constants.NetworkTron, RoleKindPool)
+	cases := map[string]struct {
+		params GetDepositKeyParams
+		err    error
+	}{
+		"empty ref":     {GetDepositKeyParams{Service: "exchange", Purpose: "gas_station", Label: "deposit", Network: constants.NetworkTron, ExternalRef: " "}, ErrInvalidParams},
+		"not deposit":   {GetDepositKeyParams{Service: "exchange", Purpose: "gas_station", Label: "pool", Network: constants.NetworkTron, ExternalRef: "order-1"}, ErrInvalidParams},
+		"other service": {GetDepositKeyParams{Service: "banknote", Purpose: "gas_station", Label: "deposit", Network: constants.NetworkTron, ExternalRef: "order-1"}, ErrRoleNotFound},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if _, err := srv.GetDepositKey(ctx, tc.params); !errors.Is(err, tc.err) {
+				t.Fatalf("err = %v, want %v", err, tc.err)
+			}
+		})
 	}
 }
 

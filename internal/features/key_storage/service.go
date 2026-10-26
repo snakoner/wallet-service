@@ -33,6 +33,7 @@ type repository interface {
 	CreateKey(ctx context.Context, tx db.DBTX, key *WalletKey) error
 	GetKey(ctx context.Context, tx db.DBTX, id uuid.UUID, service string) (*WalletKey, error)
 	GetActiveKey(ctx context.Context, tx db.DBTX, roleID uuid.UUID) (*WalletKey, error)
+	GetKeyByExternalRef(ctx context.Context, tx db.DBTX, roleID uuid.UUID, externalRef string) (*WalletKey, error)
 	ListRoleKeys(ctx context.Context, tx db.DBTX, roleID uuid.UUID) ([]WalletKey, error)
 	ListKeys(ctx context.Context, tx db.DBTX, filter ListKeysFilter) ([]WalletKey, error)
 	UpdateRolePolicy(ctx context.Context, tx db.DBTX, id uuid.UUID, policy json.RawMessage) error
@@ -555,6 +556,45 @@ func (s *Service) GetRoleKey(ctx context.Context, params GetRoleKeyParams) (*Wal
 	key.Role = *role
 
 	return key, nil
+}
+
+// GetDepositKey returns key of own deposit role for external_ref, creating it on first call.
+func (s *Service) GetDepositKey(ctx context.Context, params GetDepositKeyParams) (*WalletKey, error) {
+	externalRef := strings.TrimSpace(params.ExternalRef)
+	if externalRef == "" {
+		return nil, ErrInvalidParams.WithMessage("external_ref is required")
+	}
+
+	role, err := s.repo.GetRole(ctx, s.txm.GetPool(), params.Service, params.Purpose, params.Label, params.Network)
+	if err != nil {
+		return nil, err
+	}
+
+	if role.Kind != RoleKindDeposit {
+		return nil, ErrInvalidParams.WithMessage("role is not deposit")
+	}
+
+	key, err := s.repo.GetKeyByExternalRef(ctx, s.txm.GetPool(), role.ID, externalRef)
+	if err == nil {
+		key.Role = *role
+		return key, nil
+	}
+
+	if !errors.Is(err, ErrKeyNotFound) {
+		return nil, err
+	}
+
+	key, err = s.addKey(ctx, role.ID, params.Alias, &externalRef, generateKey)
+	if errors.Is(err, ErrKeyExists) {
+		// concurrent request created key for same external_ref
+		key, err = s.repo.GetKeyByExternalRef(ctx, s.txm.GetPool(), role.ID, externalRef)
+		if err != nil {
+			return nil, err
+		}
+		key.Role = *role
+	}
+
+	return key, err
 }
 
 func isSigningAllowed(status KeyStatus) bool {

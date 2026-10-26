@@ -90,6 +90,22 @@ type GetRoleKeyParams struct {
 	Network constants.Network
 }
 
+type GetDepositKeyParams struct {
+	Service     string
+	Purpose     string
+	Label       string
+	Network     constants.Network
+	ExternalRef string
+	Alias       *string
+}
+
+type GetDepositKeyRequest struct {
+	Network     string  `json:"network" binding:"required,network"`
+	Label       string  `json:"label"`
+	ExternalRef string  `json:"external_ref" binding:"required,max=128"`
+	Alias       *string `json:"alias" binding:"omitempty,max=128"`
+}
+
 type GetRoleKeyQuery struct {
 	Label   string `form:"label"`
 	Network string `form:"network" binding:"required,network"`
@@ -104,6 +120,7 @@ type KeyResponse struct {
 	Kind        string     `json:"kind"`
 	Alias       *string    `json:"alias,omitempty"`
 	Address     string     `json:"address"`
+	ExternalRef *string    `json:"external_ref,omitempty"`
 	Status      string     `json:"status"`
 	ReplacedBy  *uuid.UUID `json:"replaced_by,omitempty"`
 	LeaseOwner  *string    `json:"lease_owner,omitempty"`
@@ -121,6 +138,7 @@ func NewKeyResponse(key *WalletKey) KeyResponse {
 		Kind:        key.Role.Kind.String(),
 		Alias:       key.Alias,
 		Address:     key.Address,
+		ExternalRef: key.ExternalRef,
 		Status:      key.Status.String(),
 		ReplacedBy:  key.ReplacedBy,
 		LeaseOwner:  key.LeaseOwner,

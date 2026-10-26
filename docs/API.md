@@ -81,6 +81,32 @@ curl -s "http://localhost:8080/api/v1/roles/executor/keys?network=ethereum" \
 
 Ошибки: `ROLE_NOT_FOUND` (404), `INVALID_PARAMS` (400, deposit-роль: её ключи по списку не отдаются), `VALIDATION_FAILED` (400), `UNAUTHORIZED` (401).
 
+### `POST /api/v1/roles/{purpose}/deposit-key` — deposit-ключ по `external_ref`
+
+Авторизация: `X-Service-Key`. Только для своей `deposit`-роли. Первый вызов создаёт ключ, повторные с тем же `external_ref` возвращают тот же ключ, поэтому ручку можно безопасно ретраить. Параллельные вызовы с одним `external_ref` тоже получат один ключ.
+
+| Поле | Обязательно | |
+|---|---|---|
+| `network` | да | `ethereum`, `tron`, `arbitrum` |
+| `external_ref` | да | id заказа, до 128 символов |
+| `label` | нет | уточнение роли |
+| `alias` | нет | применяется только при создании |
+
+```bash
+curl -s -X POST http://localhost:8080/api/v1/roles/deposit/deposit-key \
+  -H "X-Service-Key: $SERVICE_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"network":"ethereum","external_ref":"order-1"}'
+```
+
+```json
+{"success":true,"data":{"id":"…","service":"exchange","purpose":"deposit","label":"","network":"ethereum","kind":"deposit","address":"0x…","external_ref":"order-1","status":"active","created_at":"…"}}
+```
+
+Ключ возвращается в текущем статусе: если админ его отозвал, придёт `revoked`, нового ключа не создаётся.
+
+Ошибки: `ROLE_NOT_FOUND` (404), `INVALID_PARAMS` (400, роль не deposit), `VALIDATION_FAILED` (400), `UNAUTHORIZED` (401).
+
 ### `POST /api/v1/keys/{id}/sign-transaction` — подписать транзакцию
 
 Авторизация: `X-Service-Key`.
@@ -314,14 +340,13 @@ make test-integration   # интеграционные: поднимает docke
 `docker-compose.test.yml` (отдельный compose-проект `wallet-service-test`, порты 15433 / 18090 / 18545): Postgres, миграции up → down → up (проверка down-миграций), приложение и anvil (локальный Ethereum, chain id 31337). Тесты под тегом `integration`, обычный `go test ./...` их не запускает.
 
 - `internal/features/*/repository_integration_test.go` — SQL против настоящего Postgres: уникальности, гонка 20 `CreateKey` в single-роль, `IsServiceAddress`, фильтры `ListKeys`, ротация и параллельные ротации service key.
-- `test/integration` — API end-to-end: авторизация, роли, подпись ETH (legacy и EIP-1559) с отправкой в anvil и проверкой receipt, отказы (политика, chain id, статус ключа, чужой сервис), подпись TRON с восстановлением адреса из подписи, admin API.
+- `test/integration` — API end-to-end: авторизация, роли, подпись ETH (legacy и EIP-1559) с отправкой в anvil и проверкой receipt, отказы (политика, chain id, статус ключа, чужой сервис), подпись TRON с восстановлением адреса из подписи, deposit-ключи (повтор и гонка по одному `external_ref`, вывод на газовый кошелёк), admin API.
 
 ## Ещё не сделано
 
 | Что | Статус |
 |---|---|
 | Лимиты за период и проверка аргументов `contract_call` в политике | после аудита, см. [POLICY.md](POLICY.md) §7 |
-| Создание deposit-ключей сервисом через API, поиск по `external_ref` | шаг 4 |
 | Несколько KEK и перешифровка (`rewrap-keys`) | следующий шаг |
 | Go-клиент `pkg/client` для сервисов | шаг 6 |
 | Перевод atoken-exchange, cedex-retail, banknote на wallet-service | шаг 7 |

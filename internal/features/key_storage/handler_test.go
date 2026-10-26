@@ -20,6 +20,7 @@ import (
 
 type serviceStub struct {
 	leaseParams AcquireLeaseParams
+	deposit     GetDepositKeyParams
 	leaseID     uuid.UUID
 	ttl         time.Duration
 	params      GetRoleKeyParams
@@ -52,6 +53,14 @@ func (s *serviceStub) GetRoleKeys(_ context.Context, params GetRoleKeyParams) ([
 		{ID: uuid.New(), Role: role, Network: params.Network, Address: "0xA", Status: KeyStatusActive, KeyCipher: []byte("secret")},
 		{ID: uuid.New(), Role: role, Network: params.Network, Address: "0xB", Status: KeyStatusRotating, KeyCipher: []byte("secret")},
 	}, nil
+}
+
+func (s *serviceStub) GetDepositKey(_ context.Context, params GetDepositKeyParams) (*WalletKey, error) {
+	s.deposit = params
+	if s.err != nil {
+		return nil, s.err
+	}
+	return &WalletKey{ID: uuid.New(), Role: Role{Service: params.Service, Purpose: params.Purpose, Kind: RoleKindDeposit}, Network: params.Network, Address: "TDeposit", ExternalRef: &params.ExternalRef, Status: KeyStatusActive, KeyCipher: []byte("secret")}, nil
 }
 
 func (s *serviceStub) AcquireLease(_ context.Context, params AcquireLeaseParams) (*Lease, error) {
@@ -89,6 +98,7 @@ func doGetRoleKey(t *testing.T, svc *serviceStub, service, path string) *httptes
 	r.GET("/api/v1/roles/:purpose/keys", setService, NewHandler(svc, logger.New(logger.Config{Level: "error"})).GetRoleKeys)
 	h := NewHandler(svc, logger.New(logger.Config{Level: "error"}))
 	r.POST("/api/v1/roles/:purpose/lease", setService, h.AcquireLease)
+	r.POST("/api/v1/roles/:purpose/deposit-key", setService, h.GetDepositKey)
 	r.POST("/api/v1/leases/:id/extend", setService, h.ExtendLease)
 	r.DELETE("/api/v1/leases/:id", setService, h.ReleaseLease)
 	w := httptest.NewRecorder()
@@ -219,5 +229,43 @@ func TestHandlerLease(t *testing.T) {
 	}
 	if w := doGetRoleKey(t, &serviceStub{}, "", `DELETE /api/v1/leases/`+leaseID.String()); w.Code != http.StatusUnauthorized {
 		t.Fatalf("release without service: code = %d", w.Code)
+	}
+}
+
+func TestHandlerGetDepositKey(t *testing.T) {
+	svc := &serviceStub{}
+	w := doGetRoleKey(t, svc, "exchange", `POST /api/v1/roles/deposit/deposit-key {"network":"tron","label":"usdt","external_ref":"order-1"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("code = %d, body = %s", w.Code, w.Body)
+	}
+	p := svc.deposit
+	if p.Service != "exchange" || p.Purpose != "deposit" || p.Label != "usdt" || p.Network != constants.NetworkTron || p.ExternalRef != "order-1" {
+		t.Fatalf("params = %+v", p)
+	}
+	var resp struct {
+		Data map[string]any `json:"data"`
+	}
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp.Data["address"] != "TDeposit" || resp.Data["external_ref"] != "order-1" || resp.Data["kind"] != "deposit" {
+		t.Fatalf("data = %v", resp.Data)
+	}
+
+	cases := map[string]struct {
+		body string
+		err  error
+		want int
+	}{
+		"no external_ref": {`{"network":"tron"}`, nil, http.StatusBadRequest},
+		"no network":      {`{"external_ref":"order-1"}`, nil, http.StatusBadRequest},
+		"long ref":        {`{"network":"tron","external_ref":"` + strings.Repeat("a", 129) + `"}`, nil, http.StatusBadRequest},
+		"role not found":  {`{"network":"tron","external_ref":"order-1"}`, ErrRoleNotFound, http.StatusNotFound},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			w := doGetRoleKey(t, &serviceStub{err: tc.err}, "exchange", "POST /api/v1/roles/deposit/deposit-key "+tc.body)
+			if w.Code != tc.want {
+				t.Fatalf("code = %d, want %d, body = %s", w.Code, tc.want, w.Body)
+			}
+		})
 	}
 }
