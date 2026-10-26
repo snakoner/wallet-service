@@ -295,7 +295,7 @@ func createRole(args []string) {
 		a.log.Fatal().Str("network", *networkName).Msg("unsupported network")
 	}
 
-	kind, ok := keystorage.ParseRoleKind(*kindName)
+	kind, ok := constants.ParseRoleKind(*kindName)
 	if !ok {
 		a.log.Fatal().Str("kind", *kindName).Msg("unsupported role kind")
 	}
@@ -413,7 +413,7 @@ func listKeys(args []string) {
 	}
 
 	if *statusName != "" {
-		status, ok := keystorage.ParseKeyStatus(*statusName)
+		status, ok := constants.ParseKeyStatus(*statusName)
 		if !ok {
 			a.log.Fatal().Str("status", *statusName).Msg("unsupported status")
 		}

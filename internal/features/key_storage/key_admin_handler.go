@@ -86,7 +86,7 @@ func (h *AdminHandler) ListRoleKeys(c *gin.Context) {
 // @Param       purpose      query string false "Role purpose"
 // @Param       label        query string false "Purpose refinement"
 // @Param       network      query string false "Network: ethereum, tron, arbitrum"
-// @Param       status       query string false "Status: active, rotating, pending, disabled, revoked"
+// @Param       status       query string false "Key status" Enums(active, rotating, pending, disabled, revoked)
 // @Param       external_ref query string false "Order id of deposit key"
 // @Param       limit        query int    false "Max keys, default 100, max 1000"
 // @Success     200 {object} httputil.Response{data=[]key_storage.KeyResponse}
@@ -111,7 +111,7 @@ func (h *AdminHandler) ListKeys(c *gin.Context) {
 		filter.Network = &network
 	}
 	if query.Status != "" {
-		status, _ := ParseKeyStatus(query.Status)
+		status, _ := constants.ParseKeyStatus(query.Status)
 		filter.Status = &status
 	}
 

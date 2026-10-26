@@ -16,13 +16,13 @@ func TestLease(t *testing.T) {
 	srv := newTestService(t, repo)
 	ctx := context.Background()
 
-	pool := createTestRole(t, srv, constants.NetworkEthereum, RoleKindPool)
+	pool := createTestRole(t, srv, constants.NetworkEthereum, constants.RoleKindPool)
 	first, _ := srv.CreateKey(ctx, CreateKeyParams{RoleID: pool.ID})
 	second, _ := srv.CreateKey(ctx, CreateKeyParams{RoleID: pool.ID})
 	params := AcquireLeaseParams{Service: "exchange", Purpose: "gas_station", Label: "pool", Network: constants.NetworkEthereum, Owner: "pod-1"}
 
 	lease, err := srv.AcquireLease(ctx, params)
-	if err != nil || lease.Key.ID != first.ID || lease.Key.Role.Kind != RoleKindPool || !lease.ExpiresAt.After(time.Now()) {
+	if err != nil || lease.Key.ID != first.ID || lease.Key.Role.Kind != constants.RoleKindPool || !lease.ExpiresAt.After(time.Now()) {
 		t.Fatalf("lease = %+v, err = %v", lease, err)
 	}
 	if lease.ExpiresAt.After(time.Now().Add(defaultLeaseTTL + time.Second)) {
@@ -67,7 +67,7 @@ func TestLease(t *testing.T) {
 		t.Fatalf("extend released: err = %v", err)
 	}
 
-	deposit := createTestRole(t, srv, constants.NetworkEthereum, RoleKindDeposit)
+	deposit := createTestRole(t, srv, constants.NetworkEthereum, constants.RoleKindDeposit)
 	if _, err := srv.AcquireLease(ctx, AcquireLeaseParams{Service: "exchange", Purpose: deposit.Purpose, Label: deposit.Label, Network: constants.NetworkEthereum}); !errors.Is(err, ErrInvalidParams) {
 		t.Fatalf("deposit lease: err = %v", err)
 	}
@@ -77,7 +77,7 @@ func TestLeaseSingleKey(t *testing.T) {
 	srv := newTestService(t, &repoStub{})
 	ctx := context.Background()
 
-	role := createTestRole(t, srv, constants.NetworkEthereum, RoleKindSingle)
+	role := createTestRole(t, srv, constants.NetworkEthereum, constants.RoleKindSingle)
 	key, _ := srv.CreateKey(ctx, CreateKeyParams{RoleID: role.ID})
 	noop := func(*WalletKey) error { return nil }
 	sign := func(leaseID *uuid.UUID) error {

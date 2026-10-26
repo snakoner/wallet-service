@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/constants"
 	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/policy"
 )
 
@@ -21,7 +22,7 @@ func (s *Service) CreateRole(ctx context.Context, params CreateRoleParams) (*Rol
 		return nil, ErrUnsupportedNetwork
 	}
 
-	if _, ok := RoleKindStrings[params.Kind]; !ok {
+	if _, ok := constants.RoleKindStrings[params.Kind]; !ok {
 		return nil, ErrInvalidParams.WithMessage("unsupported role kind")
 	}
 

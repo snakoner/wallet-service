@@ -41,7 +41,7 @@ func (s *adminServiceStub) UpdatePolicy(_ context.Context, roleID uuid.UUID, raw
 	if s.err != nil {
 		return nil, s.err
 	}
-	return &Role{ID: roleID, Service: "exchange", Network: constants.NetworkTron, Kind: RoleKindSingle, Policy: raw}, nil
+	return &Role{ID: roleID, Service: "exchange", Network: constants.NetworkTron, Kind: constants.RoleKindSingle, Policy: raw}, nil
 }
 
 func (s *adminServiceStub) ListKeys(_ context.Context, filter ListKeysFilter) ([]WalletKey, error) {
@@ -49,15 +49,15 @@ func (s *adminServiceStub) ListKeys(_ context.Context, filter ListKeysFilter) ([
 	if s.err != nil {
 		return nil, s.err
 	}
-	return []WalletKey{{ID: uuid.New(), Role: Role{Service: "exchange", Purpose: "executor", Kind: RoleKindPool}, Network: constants.NetworkEthereum, Address: "0xA", Status: KeyStatusActive, KeyCipher: []byte("secret")}}, nil
+	return []WalletKey{{ID: uuid.New(), Role: Role{Service: "exchange", Purpose: "executor", Kind: constants.RoleKindPool}, Network: constants.NetworkEthereum, Address: "0xA", Status: constants.KeyStatusActive, KeyCipher: []byte("secret")}}, nil
 }
 
-func (s *adminServiceStub) keyAction(keyID uuid.UUID, status KeyStatus) (*WalletKey, error) {
+func (s *adminServiceStub) keyAction(keyID uuid.UUID, status constants.KeyStatus) (*WalletKey, error) {
 	s.keyID = keyID
 	if s.err != nil {
 		return nil, s.err
 	}
-	return &WalletKey{ID: keyID, Role: Role{Service: "exchange", Kind: RoleKindSingle}, Network: constants.NetworkEthereum, Address: "0xA", Status: status, KeyCipher: []byte("secret")}, nil
+	return &WalletKey{ID: keyID, Role: Role{Service: "exchange", Kind: constants.RoleKindSingle}, Network: constants.NetworkEthereum, Address: "0xA", Status: status, KeyCipher: []byte("secret")}, nil
 }
 
 func (s *adminServiceStub) ImportKey(_ context.Context, params ImportKeyParams) (*WalletKey, error) {
@@ -74,28 +74,28 @@ func (s *adminServiceStub) ForceReleaseLease(_ context.Context, id uuid.UUID) er
 }
 
 func (s *adminServiceStub) RotateKey(_ context.Context, id uuid.UUID) (*WalletKey, error) {
-	return s.keyAction(id, KeyStatusPending)
+	return s.keyAction(id, constants.KeyStatusPending)
 }
 
 func (s *adminServiceStub) ActivateKey(_ context.Context, id uuid.UUID) (*WalletKey, error) {
-	return s.keyAction(id, KeyStatusActive)
+	return s.keyAction(id, constants.KeyStatusActive)
 }
 
 func (s *adminServiceStub) RevokeKey(_ context.Context, id uuid.UUID) (*WalletKey, error) {
-	return s.keyAction(id, KeyStatusRevoked)
+	return s.keyAction(id, constants.KeyStatusRevoked)
 }
 
 func (s *adminServiceStub) DisableKey(_ context.Context, id uuid.UUID) (*WalletKey, error) {
-	return s.keyAction(id, KeyStatusDisabled)
+	return s.keyAction(id, constants.KeyStatusDisabled)
 }
 
 func (s *adminServiceStub) EnableKey(_ context.Context, id uuid.UUID) (*WalletKey, error) {
-	return s.keyAction(id, KeyStatusActive)
+	return s.keyAction(id, constants.KeyStatusActive)
 }
 
 func (s *adminServiceStub) ListRoles(_ context.Context, service string) ([]Role, error) {
 	s.service = service
-	return []Role{{ID: uuid.New(), Service: "exchange", Purpose: "gas_station", Network: constants.NetworkTron, Kind: RoleKindSingle}}, s.err
+	return []Role{{ID: uuid.New(), Service: "exchange", Purpose: "gas_station", Network: constants.NetworkTron, Kind: constants.RoleKindSingle}}, s.err
 }
 
 func (s *adminServiceStub) CreateKey(_ context.Context, params CreateKeyParams) (*WalletKey, error) {
@@ -103,7 +103,7 @@ func (s *adminServiceStub) CreateKey(_ context.Context, params CreateKeyParams) 
 	if s.err != nil {
 		return nil, s.err
 	}
-	return &WalletKey{ID: uuid.New(), RoleID: params.RoleID, Role: Role{Service: "exchange", Kind: RoleKindDeposit}, Network: constants.NetworkEthereum, Address: "0xAddr", ExternalRef: params.ExternalRef, KeyCipher: []byte("secret")}, nil
+	return &WalletKey{ID: uuid.New(), RoleID: params.RoleID, Role: Role{Service: "exchange", Kind: constants.RoleKindDeposit}, Network: constants.NetworkEthereum, Address: "0xAddr", ExternalRef: params.ExternalRef, KeyCipher: []byte("secret")}, nil
 }
 
 func (s *adminServiceStub) ListRoleKeys(_ context.Context, roleID uuid.UUID) ([]WalletKey, error) {

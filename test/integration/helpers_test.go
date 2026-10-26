@@ -97,7 +97,7 @@ func newEnv(t *testing.T) *env {
 	return e
 }
 
-func (e *env) role(purpose string, network constants.Network, kind keystorage.RoleKind, policy string) *keystorage.Role {
+func (e *env) role(purpose string, network constants.Network, kind constants.RoleKind, policy string) *keystorage.Role {
 	e.tb.Helper()
 	role, err := e.keys.CreateRole(e.ctx, keystorage.CreateRoleParams{Service: e.service, Purpose: purpose, Network: network, Kind: kind, Policy: []byte(policy)})
 	if err != nil {
@@ -253,7 +253,7 @@ func (e *env) broadcast(tx *types.Transaction) *types.Receipt {
 	}
 }
 
-func (e *env) setStatus(keyID uuid.UUID, status keystorage.KeyStatus) {
+func (e *env) setStatus(keyID uuid.UUID, status constants.KeyStatus) {
 	e.tb.Helper()
 	if _, err := e.pool.Exec(e.ctx, `UPDATE wallet_keys SET status = $2 WHERE id = $1`, keyID, status); err != nil {
 		e.tb.Fatal(err)

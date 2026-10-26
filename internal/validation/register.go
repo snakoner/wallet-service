@@ -38,5 +38,13 @@ func Register() error {
 		return err
 	}
 
+	if err := v.RegisterValidation("role_kind", ValidateRoleKind); err != nil {
+		return err
+	}
+
+	if err := v.RegisterValidation("key_status", ValidateKeyStatus); err != nil {
+		return err
+	}
+
 	return nil
 }

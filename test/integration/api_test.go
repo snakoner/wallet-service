@@ -19,7 +19,6 @@ import (
 	"google.golang.org/protobuf/encoding/protowire"
 
 	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/constants"
-	keystorage "gitlab.tve-development.com/backend/gtoken/wallet-service/internal/features/key_storage"
 )
 
 const gasStationPolicy = `{"version":1,"rules":[{"op":"native","to":["internal:deposit"]}]}`
@@ -50,7 +49,7 @@ func TestAuth(t *testing.T) {
 
 func TestRoleKey(t *testing.T) {
 	e := newEnv(t)
-	gas := e.key(e.role("gas_station", constants.NetworkEthereum, keystorage.RoleKindSingle, gasStationPolicy), "")
+	gas := e.key(e.role("gas_station", constants.NetworkEthereum, constants.RoleKindSingle, gasStationPolicy), "")
 
 	var key struct {
 		ID      uuid.UUID `json:"id"`
@@ -67,7 +66,7 @@ func TestRoleKey(t *testing.T) {
 		t.Fatalf("other service: status = %d, error = %+v", status, res.Error)
 	}
 
-	pool := e.role("executor", constants.NetworkEthereum, keystorage.RoleKindPool, "")
+	pool := e.role("executor", constants.NetworkEthereum, constants.RoleKindPool, "")
 	e.key(pool, "")
 	e.key(pool, "")
 	var keys []map[string]any
@@ -78,8 +77,8 @@ func TestRoleKey(t *testing.T) {
 
 func TestSignEthereumBroadcast(t *testing.T) {
 	e := newEnv(t)
-	gas := e.key(e.role("gas_station", constants.NetworkEthereum, keystorage.RoleKindSingle, gasStationPolicy), "")
-	deposit := e.key(e.role("deposit", constants.NetworkEthereum, keystorage.RoleKindDeposit, ""), "order-1")
+	gas := e.key(e.role("gas_station", constants.NetworkEthereum, constants.RoleKindSingle, gasStationPolicy), "")
+	deposit := e.key(e.role("deposit", constants.NetworkEthereum, constants.RoleKindDeposit, ""), "order-1")
 	e.fund(gas.Address, oneEth)
 
 	from, to := common.HexToAddress(gas.Address), common.HexToAddress(deposit.Address)
@@ -128,9 +127,9 @@ func TestSignEthereumBroadcast(t *testing.T) {
 
 func TestSignRejected(t *testing.T) {
 	e := newEnv(t)
-	gasRole := e.role("gas_station", constants.NetworkEthereum, keystorage.RoleKindSingle, gasStationPolicy)
+	gasRole := e.role("gas_station", constants.NetworkEthereum, constants.RoleKindSingle, gasStationPolicy)
 	gas := e.key(gasRole, "")
-	deposit := e.key(e.role("deposit", constants.NetworkEthereum, keystorage.RoleKindDeposit, ""), "order-1")
+	deposit := e.key(e.role("deposit", constants.NetworkEthereum, constants.RoleKindDeposit, ""), "order-1")
 	value := big.NewInt(1)
 
 	toDeposit, err := e.unsignedTx(0, common.HexToAddress(deposit.Address), value, true).MarshalBinary()
@@ -171,7 +170,7 @@ func TestSignRejected(t *testing.T) {
 		t.Fatalf("other service: status = %d, error = %+v", status, res.Error)
 	}
 
-	e.setStatus(gas.ID, keystorage.KeyStatusDisabled)
+	e.setStatus(gas.ID, constants.KeyStatusDisabled)
 	if status, res, _ := e.sign(gas.ID, "ethereum", toDeposit); status != http.StatusConflict || res.Error.Code != "KEY_NOT_ACTIVE" {
 		t.Fatalf("disabled key: status = %d, error = %+v", status, res.Error)
 	}
@@ -179,7 +178,7 @@ func TestSignRejected(t *testing.T) {
 
 func TestSignTron(t *testing.T) {
 	e := newEnv(t)
-	gas := e.key(e.role("gas_station", constants.NetworkTron, keystorage.RoleKindSingle, `{"version":1,"rules":[{"op":"native","to":["*"]}]}`), "")
+	gas := e.key(e.role("gas_station", constants.NetworkTron, constants.RoleKindSingle, `{"version":1,"rules":[{"op":"native","to":["*"]}]}`), "")
 	_, recipient, err := tronlib.GenerateAddress()
 	if err != nil {
 		t.Fatal(err)

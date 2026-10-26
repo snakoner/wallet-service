@@ -17,7 +17,7 @@ import (
 
 func TestIntegrationSingleRoleConcurrentCreate(t *testing.T) {
 	srv, _ := newIntegrationService(t)
-	role := createIntegrationRole(t, srv, uniqueService(), "gas_station", constants.NetworkEthereum, RoleKindSingle, "")
+	role := createIntegrationRole(t, srv, uniqueService(), "gas_station", constants.NetworkEthereum, constants.RoleKindSingle, "")
 
 	const workers = 20
 	var (
@@ -55,7 +55,7 @@ func TestIntegrationKeyUniqueConstraints(t *testing.T) {
 	ctx := context.Background()
 	service := uniqueService()
 
-	pool := createIntegrationRole(t, srv, service, "executor", constants.NetworkEthereum, RoleKindPool, "")
+	pool := createIntegrationRole(t, srv, service, "executor", constants.NetworkEthereum, constants.RoleKindPool, "")
 	privateKey, _, err := ethereumlib.GenerateAddress()
 	if err != nil {
 		t.Fatal(err)
@@ -67,7 +67,7 @@ func TestIntegrationKeyUniqueConstraints(t *testing.T) {
 		t.Fatalf("same address twice: err = %v", err)
 	}
 
-	deposit := createIntegrationRole(t, srv, service, "deposit", constants.NetworkEthereum, RoleKindDeposit, "")
+	deposit := createIntegrationRole(t, srv, service, "deposit", constants.NetworkEthereum, constants.RoleKindDeposit, "")
 	ref := "order-" + uuid.NewString()
 	if _, err := srv.CreateKey(ctx, CreateKeyParams{RoleID: deposit.ID, ExternalRef: &ref}); err != nil {
 		t.Fatal(err)
@@ -82,7 +82,7 @@ func TestIntegrationUseSigningKey(t *testing.T) {
 	ctx := context.Background()
 	service := uniqueService()
 
-	role := createIntegrationRole(t, srv, service, "gas_station", constants.NetworkEthereum, RoleKindSingle, `{"version":1,"rules":[{"op":"native","to":["internal:deposit"]}]}`)
+	role := createIntegrationRole(t, srv, service, "gas_station", constants.NetworkEthereum, constants.RoleKindSingle, `{"version":1,"rules":[{"op":"native","to":["internal:deposit"]}]}`)
 	key, err := srv.CreateKey(ctx, CreateKeyParams{RoleID: role.ID})
 	if err != nil {
 		t.Fatal(err)
@@ -90,7 +90,7 @@ func TestIntegrationUseSigningKey(t *testing.T) {
 
 	err = srv.UseSigningKey(ctx, service, key.ID, constants.NetworkEthereum, nil,
 		func(got *WalletKey) error {
-			if got.Role.Service != service || got.Role.Kind != RoleKindSingle || len(got.Role.Policy) == 0 {
+			if got.Role.Service != service || got.Role.Kind != constants.RoleKindSingle || len(got.Role.Policy) == 0 {
 				t.Fatalf("role loaded from db = %+v", got.Role)
 			}
 			return nil
@@ -118,7 +118,7 @@ func TestIntegrationIsServiceAddress(t *testing.T) {
 	ctx := context.Background()
 	service := uniqueService()
 
-	role := createIntegrationRole(t, srv, service, "deposit", constants.NetworkEthereum, RoleKindDeposit, "")
+	role := createIntegrationRole(t, srv, service, "deposit", constants.NetworkEthereum, constants.RoleKindDeposit, "")
 	ref := "order-1"
 	key, err := srv.CreateKey(ctx, CreateKeyParams{RoleID: role.ID, ExternalRef: &ref})
 	if err != nil {
@@ -141,7 +141,7 @@ func TestIntegrationIsServiceAddress(t *testing.T) {
 		}
 	}
 
-	for status, want := range map[KeyStatus]bool{KeyStatusRotating: true, KeyStatusPending: true, KeyStatusDisabled: false, KeyStatusRevoked: false} {
+	for status, want := range map[constants.KeyStatus]bool{constants.KeyStatusRotating: true, constants.KeyStatusPending: true, constants.KeyStatusDisabled: false, constants.KeyStatusRevoked: false} {
 		if _, err := pool.Exec(ctx, `UPDATE wallet_keys SET status = $2 WHERE id = $1`, key.ID, status); err != nil {
 			t.Fatal(err)
 		}
@@ -156,8 +156,8 @@ func TestIntegrationListKeys(t *testing.T) {
 	ctx := context.Background()
 	service := uniqueService()
 
-	single := createIntegrationRole(t, srv, service, "gas_station", constants.NetworkEthereum, RoleKindSingle, "")
-	labeled, err := srv.CreateRole(ctx, CreateRoleParams{Service: service, Purpose: "executor", Label: "atoken", Network: constants.NetworkTron, Kind: RoleKindPool})
+	single := createIntegrationRole(t, srv, service, "gas_station", constants.NetworkEthereum, constants.RoleKindSingle, "")
+	labeled, err := srv.CreateRole(ctx, CreateRoleParams{Service: service, Purpose: "executor", Label: "atoken", Network: constants.NetworkTron, Kind: constants.RoleKindPool})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -170,11 +170,11 @@ func TestIntegrationListKeys(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if _, err := pool.Exec(ctx, `UPDATE wallet_keys SET status = $2 WHERE id = $1`, gas.ID, KeyStatusRevoked); err != nil {
+	if _, err := pool.Exec(ctx, `UPDATE wallet_keys SET status = $2 WHERE id = $1`, gas.ID, constants.KeyStatusRevoked); err != nil {
 		t.Fatal(err)
 	}
 
-	empty, atoken, tron, revoked := "", "atoken", constants.NetworkTron, KeyStatusRevoked
+	empty, atoken, tron, revoked := "", "atoken", constants.NetworkTron, constants.KeyStatusRevoked
 	for _, tc := range []struct {
 		name   string
 		filter ListKeysFilter
@@ -203,7 +203,7 @@ func TestIntegrationRotation(t *testing.T) {
 	srv, pool := newIntegrationService(t)
 	ctx := context.Background()
 
-	role := createIntegrationRole(t, srv, uniqueService(), "gas_station", constants.NetworkEthereum, RoleKindSingle, "")
+	role := createIntegrationRole(t, srv, uniqueService(), "gas_station", constants.NetworkEthereum, constants.RoleKindSingle, "")
 	old, err := srv.CreateKey(ctx, CreateKeyParams{RoleID: role.ID})
 	if err != nil {
 		t.Fatal(err)
@@ -245,7 +245,7 @@ func TestIntegrationRotation(t *testing.T) {
 	}
 
 	var (
-		status               KeyStatus
+		status               constants.KeyStatus
 		replacedBy           *uuid.UUID
 		rotatedAt, revokedAt *time.Time
 	)
@@ -253,7 +253,7 @@ func TestIntegrationRotation(t *testing.T) {
 		Scan(&status, &replacedBy, &rotatedAt, &revokedAt); err != nil {
 		t.Fatal(err)
 	}
-	if status != KeyStatusRevoked || replacedBy == nil || *replacedBy != replacement.ID || rotatedAt == nil || revokedAt == nil {
+	if status != constants.KeyStatusRevoked || replacedBy == nil || *replacedBy != replacement.ID || rotatedAt == nil || revokedAt == nil {
 		t.Fatalf("old key: status = %s, replaced_by = %v, rotated_at = %v, revoked_at = %v", status, replacedBy, rotatedAt, revokedAt)
 	}
 

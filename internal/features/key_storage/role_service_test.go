@@ -13,7 +13,7 @@ import (
 func TestCreateRole(t *testing.T) {
 	srv := newTestService(t, &repoStub{})
 
-	role, err := srv.CreateRole(context.Background(), CreateRoleParams{Service: " exchange ", Purpose: "gas_station", Label: " atoken ", Network: constants.NetworkTron, Kind: RoleKindSingle})
+	role, err := srv.CreateRole(context.Background(), CreateRoleParams{Service: " exchange ", Purpose: "gas_station", Label: " atoken ", Network: constants.NetworkTron, Kind: constants.RoleKindSingle})
 	if err != nil {
 		t.Fatalf("CreateRole() error = %v", err)
 	}
@@ -21,17 +21,17 @@ func TestCreateRole(t *testing.T) {
 		t.Fatalf("role = %+v", role)
 	}
 
-	if _, err := srv.CreateRole(context.Background(), CreateRoleParams{Service: "exchange", Purpose: "gas_station", Label: "atoken", Network: constants.NetworkTron, Kind: RoleKindSingle}); !errors.Is(err, ErrRoleExists) {
+	if _, err := srv.CreateRole(context.Background(), CreateRoleParams{Service: "exchange", Purpose: "gas_station", Label: "atoken", Network: constants.NetworkTron, Kind: constants.RoleKindSingle}); !errors.Is(err, ErrRoleExists) {
 		t.Fatalf("duplicate: err = %v", err)
 	}
 
 	cases := map[string]CreateRoleParams{
-		"no service":     {Purpose: "executor", Network: constants.NetworkTron, Kind: RoleKindPool},
-		"no purpose":     {Service: "exchange", Network: constants.NetworkTron, Kind: RoleKindPool},
-		"bad network":    {Service: "exchange", Purpose: "executor", Network: 9, Kind: RoleKindPool},
+		"no service":     {Purpose: "executor", Network: constants.NetworkTron, Kind: constants.RoleKindPool},
+		"no purpose":     {Service: "exchange", Network: constants.NetworkTron, Kind: constants.RoleKindPool},
+		"bad network":    {Service: "exchange", Purpose: "executor", Network: 9, Kind: constants.RoleKindPool},
 		"bad kind":       {Service: "exchange", Purpose: "executor", Network: constants.NetworkTron},
-		"invalid policy": {Service: "exchange", Purpose: "executor", Network: constants.NetworkTron, Kind: RoleKindPool, Policy: []byte("{")},
-		"policy rule":    {Service: "exchange", Purpose: "executor", Network: constants.NetworkTron, Kind: RoleKindPool, Policy: []byte(`{"version":1,"rules":[{"op":"native"}]}`)},
+		"invalid policy": {Service: "exchange", Purpose: "executor", Network: constants.NetworkTron, Kind: constants.RoleKindPool, Policy: []byte("{")},
+		"policy rule":    {Service: "exchange", Purpose: "executor", Network: constants.NetworkTron, Kind: constants.RoleKindPool, Policy: []byte(`{"version":1,"rules":[{"op":"native"}]}`)},
 	}
 	for name, params := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -46,8 +46,8 @@ func TestListRolesAndKeys(t *testing.T) {
 	srv := newTestService(t, &repoStub{})
 	ctx := context.Background()
 
-	pool := createTestRole(t, srv, constants.NetworkEthereum, RoleKindPool)
-	if _, err := srv.CreateRole(ctx, CreateRoleParams{Service: "banknote", Purpose: "executor", Network: constants.NetworkTron, Kind: RoleKindPool}); err != nil {
+	pool := createTestRole(t, srv, constants.NetworkEthereum, constants.RoleKindPool)
+	if _, err := srv.CreateRole(ctx, CreateRoleParams{Service: "banknote", Purpose: "executor", Network: constants.NetworkTron, Kind: constants.RoleKindPool}); err != nil {
 		t.Fatal(err)
 	}
 	for range 2 {
@@ -75,7 +75,7 @@ func TestListRolesAndKeys(t *testing.T) {
 func TestUpdatePolicy(t *testing.T) {
 	repo := &repoStub{}
 	srv := newTestService(t, repo)
-	role := createTestRole(t, srv, constants.NetworkEthereum, RoleKindSingle)
+	role := createTestRole(t, srv, constants.NetworkEthereum, constants.RoleKindSingle)
 
 	updated, err := srv.UpdatePolicy(context.Background(), role.ID, []byte(`{"version":1,"rules":[{"op":"native","to":["internal:executor"]}]}`))
 	if err != nil {

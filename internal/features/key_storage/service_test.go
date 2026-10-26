@@ -76,7 +76,7 @@ func (r *repoStub) UpdateRolePolicy(_ context.Context, _ db.DBTX, id uuid.UUID, 
 
 func (r *repoStub) IsServiceAddress(_ context.Context, _ db.DBTX, service string, network constants.Network, address, purpose string) (bool, error) {
 	for _, key := range r.keys {
-		usable := key.Status == KeyStatusActive || key.Status == KeyStatusRotating || key.Status == KeyStatusPending
+		usable := key.Status == constants.KeyStatusActive || key.Status == constants.KeyStatusRotating || key.Status == constants.KeyStatusPending
 		if usable && key.Role.Service == service && key.Network == network && key.Address == address && (purpose == "" || key.Role.Purpose == purpose) {
 			return true, nil
 		}
@@ -106,7 +106,7 @@ func (r *repoStub) AcquireLease(_ context.Context, _ db.DBTX, roleID, leaseID uu
 		for _, id := range exclude {
 			excluded = excluded || id == key.ID
 		}
-		if key.RoleID != roleID || key.Status != KeyStatusActive || excluded || (key.LeasedUntil != nil && key.LeasedUntil.After(now)) {
+		if key.RoleID != roleID || key.Status != constants.KeyStatusActive || excluded || (key.LeasedUntil != nil && key.LeasedUntil.After(now)) {
 			continue
 		}
 		until := now.Add(ttl)
@@ -165,7 +165,7 @@ func (r *repoStub) GetRoleForUpdate(_ context.Context, _ db.DBTX, id uuid.UUID) 
 
 func (r *repoStub) HasActiveKey(_ context.Context, _ db.DBTX, roleID uuid.UUID) (bool, error) {
 	for _, key := range r.keys {
-		if key.RoleID == roleID && key.Status == KeyStatusActive {
+		if key.RoleID == roleID && key.Status == constants.KeyStatusActive {
 			return true, nil
 		}
 	}
@@ -222,13 +222,13 @@ func (r *repoStub) GetReplacedKeyForUpdate(_ context.Context, _ db.DBTX, replace
 	return nil, ErrKeyNotFound
 }
 
-func (r *repoStub) UpdateKeyStatus(_ context.Context, _ db.DBTX, id uuid.UUID, status KeyStatus, now time.Time) error {
+func (r *repoStub) UpdateKeyStatus(_ context.Context, _ db.DBTX, id uuid.UUID, status constants.KeyStatus, now time.Time) error {
 	key := r.findKey(id)
 	key.Status = status
-	if status == KeyStatusRotating {
+	if status == constants.KeyStatusRotating {
 		key.RotatedAt = &now
 	}
-	if status == KeyStatusRevoked {
+	if status == constants.KeyStatusRevoked {
 		key.RevokedAt = &now
 	}
 	return nil
@@ -241,7 +241,7 @@ func (r *repoStub) SetKeyReplacedBy(_ context.Context, _ db.DBTX, id uuid.UUID, 
 
 func (r *repoStub) GetActiveKey(_ context.Context, _ db.DBTX, roleID uuid.UUID) (*WalletKey, error) {
 	for _, key := range r.keys {
-		if key.RoleID == roleID && key.Status == KeyStatusActive {
+		if key.RoleID == roleID && key.Status == constants.KeyStatusActive {
 			return key, nil
 		}
 	}
@@ -275,7 +275,7 @@ func newTestService(t *testing.T, repo repository) *Service {
 	return NewService(log, repo, txmStub{}, aes256.NewAES256GCM(kek), 1)
 }
 
-func createTestRole(t *testing.T, srv *Service, network constants.Network, kind RoleKind) *Role {
+func createTestRole(t *testing.T, srv *Service, network constants.Network, kind constants.RoleKind) *Role {
 	t.Helper()
 	role, err := srv.CreateRole(context.Background(), CreateRoleParams{Service: "exchange", Purpose: "gas_station", Label: kind.String(), Network: network, Kind: kind})
 	if err != nil {
@@ -297,7 +297,7 @@ func addressOf(t *testing.T, network constants.Network, privateKey []byte) strin
 
 func TestDecryptPrivateKeyErrors(t *testing.T) {
 	srv := newTestService(t, &repoStub{})
-	role := createTestRole(t, srv, constants.NetworkEthereum, RoleKindSingle)
+	role := createTestRole(t, srv, constants.NetworkEthereum, constants.RoleKindSingle)
 	key, err := srv.CreateKey(context.Background(), CreateKeyParams{RoleID: role.ID})
 	if err != nil {
 		t.Fatal(err)

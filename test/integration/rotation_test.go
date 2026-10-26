@@ -12,7 +12,6 @@ import (
 	"github.com/google/uuid"
 
 	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/constants"
-	keystorage "gitlab.tve-development.com/backend/gtoken/wallet-service/internal/features/key_storage"
 )
 
 type keyView struct {
@@ -58,8 +57,8 @@ func (e *env) admin(action string, keyID uuid.UUID) keyView {
 
 func TestRotateGasStation(t *testing.T) {
 	e := newEnv(t)
-	old := e.key(e.role("gas_station", constants.NetworkEthereum, keystorage.RoleKindSingle, gasStationPolicy), "")
-	deposit := e.key(e.role("deposit", constants.NetworkEthereum, keystorage.RoleKindDeposit, ""), "order-1")
+	old := e.key(e.role("gas_station", constants.NetworkEthereum, constants.RoleKindSingle, gasStationPolicy), "")
+	deposit := e.key(e.role("deposit", constants.NetworkEthereum, constants.RoleKindDeposit, ""), "order-1")
 	e.fund(old.Address, oneEth)
 	oldAddress := common.HexToAddress(old.Address)
 	halfEth := new(big.Int).Div(oneEth, big.NewInt(2))
@@ -126,7 +125,7 @@ func TestRotateGasStation(t *testing.T) {
 
 func TestCancelRotation(t *testing.T) {
 	e := newEnv(t)
-	old := e.key(e.role("gas_station", constants.NetworkEthereum, keystorage.RoleKindSingle, gasStationPolicy), "")
+	old := e.key(e.role("gas_station", constants.NetworkEthereum, constants.RoleKindSingle, gasStationPolicy), "")
 
 	replacement := e.admin("rotate", old.ID)
 	if status, res := e.call(http.MethodPost, "/api/v1/admin/keys/"+old.ID.String()+"/rotate", "", nil, nil); status != http.StatusConflict || res.Error.Code != "ROTATION_IN_PROGRESS" {

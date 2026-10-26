@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/constants"
 	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/infra/db"
 )
 
@@ -59,7 +60,7 @@ func (r *Repository) AcquireLease(
 		leaseID,
 		owner,
 		ttl.Seconds(),
-		KeyStatusActive,
+		constants.KeyStatusActive,
 		exclude,
 	).Scan(
 		&key.ID,

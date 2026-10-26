@@ -18,7 +18,7 @@ func TestIntegrationLease(t *testing.T) {
 	srv, _ := newIntegrationService(t)
 	ctx := context.Background()
 
-	role := createIntegrationRole(t, srv, uniqueService(), "executor", constants.NetworkEthereum, RoleKindPool, "")
+	role := createIntegrationRole(t, srv, uniqueService(), "executor", constants.NetworkEthereum, constants.RoleKindPool, "")
 	for range 3 {
 		if _, err := srv.CreateKey(ctx, CreateKeyParams{RoleID: role.ID}); err != nil {
 			t.Fatal(err)
@@ -66,7 +66,7 @@ func TestIntegrationLeaseExpiresAndReleases(t *testing.T) {
 	srv, _ := newIntegrationService(t)
 	ctx := context.Background()
 
-	role := createIntegrationRole(t, srv, uniqueService(), "executor", constants.NetworkEthereum, RoleKindPool, "")
+	role := createIntegrationRole(t, srv, uniqueService(), "executor", constants.NetworkEthereum, constants.RoleKindPool, "")
 	key, err := srv.CreateKey(ctx, CreateKeyParams{RoleID: role.ID})
 	if err != nil {
 		t.Fatal(err)

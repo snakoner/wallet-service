@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/app/middleware"
+	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/constants"
 	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/infra/logger"
 	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/validation"
 )
@@ -32,10 +33,10 @@ func (s *serviceStub) GetRoleKey(_ context.Context, params GetRoleKeyParams) (*W
 	}
 	return &WalletKey{
 		ID:        uuid.New(),
-		Role:      Role{Service: params.Service, Purpose: params.Purpose, Label: params.Label, Kind: RoleKindSingle},
+		Role:      Role{Service: params.Service, Purpose: params.Purpose, Label: params.Label, Kind: constants.RoleKindSingle},
 		Network:   params.Network,
 		Address:   "TAddr",
-		Status:    KeyStatusActive,
+		Status:    constants.KeyStatusActive,
 		KeyCipher: []byte("secret"),
 		CreatedAt: time.Now(),
 	}, nil
@@ -46,10 +47,10 @@ func (s *serviceStub) GetRoleKeys(_ context.Context, params GetRoleKeyParams) ([
 	if s.err != nil {
 		return nil, s.err
 	}
-	role := Role{Service: params.Service, Purpose: params.Purpose, Kind: RoleKindPool}
+	role := Role{Service: params.Service, Purpose: params.Purpose, Kind: constants.RoleKindPool}
 	return []WalletKey{
-		{ID: uuid.New(), Role: role, Network: params.Network, Address: "0xA", Status: KeyStatusActive, KeyCipher: []byte("secret")},
-		{ID: uuid.New(), Role: role, Network: params.Network, Address: "0xB", Status: KeyStatusRotating, KeyCipher: []byte("secret")},
+		{ID: uuid.New(), Role: role, Network: params.Network, Address: "0xA", Status: constants.KeyStatusActive, KeyCipher: []byte("secret")},
+		{ID: uuid.New(), Role: role, Network: params.Network, Address: "0xB", Status: constants.KeyStatusRotating, KeyCipher: []byte("secret")},
 	}, nil
 }
 
@@ -58,7 +59,7 @@ func (s *serviceStub) GetOrCreateDepositKey(_ context.Context, params GetDeposit
 	if s.err != nil {
 		return nil, s.err
 	}
-	return &WalletKey{ID: uuid.New(), Role: Role{Service: params.Service, Purpose: params.Purpose, Kind: RoleKindDeposit}, Network: params.Network, Address: "TDeposit", ExternalRef: &params.ExternalRef, Status: KeyStatusActive, KeyCipher: []byte("secret")}, nil
+	return &WalletKey{ID: uuid.New(), Role: Role{Service: params.Service, Purpose: params.Purpose, Kind: constants.RoleKindDeposit}, Network: params.Network, Address: "TDeposit", ExternalRef: &params.ExternalRef, Status: constants.KeyStatusActive, KeyCipher: []byte("secret")}, nil
 }
 
 func (s *serviceStub) AcquireLease(_ context.Context, params AcquireLeaseParams) (*Lease, error) {
@@ -66,7 +67,7 @@ func (s *serviceStub) AcquireLease(_ context.Context, params AcquireLeaseParams)
 	if s.err != nil {
 		return nil, s.err
 	}
-	return &Lease{ID: uuid.New(), ExpiresAt: time.Now().Add(time.Minute), Key: WalletKey{ID: uuid.New(), Role: Role{Service: params.Service, Purpose: params.Purpose, Kind: RoleKindPool}, Network: params.Network, Address: "0xA", Status: KeyStatusActive, KeyCipher: []byte("secret")}}, nil
+	return &Lease{ID: uuid.New(), ExpiresAt: time.Now().Add(time.Minute), Key: WalletKey{ID: uuid.New(), Role: Role{Service: params.Service, Purpose: params.Purpose, Kind: constants.RoleKindPool}, Network: params.Network, Address: "0xA", Status: constants.KeyStatusActive, KeyCipher: []byte("secret")}}, nil
 }
 
 func (s *serviceStub) ExtendLease(_ context.Context, service string, leaseID uuid.UUID, ttl time.Duration) (time.Time, error) {

@@ -26,7 +26,7 @@ func (h *AdminHandler) CreateRole(c *gin.Context) {
 	}
 
 	network, _ := constants.ParseNetwork(req.Network)
-	kind, _ := ParseRoleKind(req.Kind)
+	kind, _ := constants.ParseRoleKind(req.Kind)
 
 	role, err := h.service.CreateRole(c.Request.Context(), CreateRoleParams{
 		Service: req.Service,

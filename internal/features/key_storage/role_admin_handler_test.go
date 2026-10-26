@@ -17,7 +17,7 @@ func TestAdminCreateRole(t *testing.T) {
 		t.Fatalf("code = %d, body = %s", w.Code, w.Body)
 	}
 	p := svc.roleParams
-	if p.Service != "exchange" || p.Purpose != "gas_station" || p.Label != "atoken" || p.Network != constants.NetworkTron || p.Kind != RoleKindSingle || string(p.Policy) != `{"rules":[]}` {
+	if p.Service != "exchange" || p.Purpose != "gas_station" || p.Label != "atoken" || p.Network != constants.NetworkTron || p.Kind != constants.RoleKindSingle || string(p.Policy) != `{"rules":[]}` {
 		t.Fatalf("params = %+v", p)
 	}
 

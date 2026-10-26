@@ -85,11 +85,11 @@ func (s *Service) addKey(
 			return err
 		}
 
-		if (role.Kind == RoleKindDeposit) != (externalRef != nil && strings.TrimSpace(*externalRef) != "") {
+		if (role.Kind == constants.RoleKindDeposit) != (externalRef != nil && strings.TrimSpace(*externalRef) != "") {
 			return ErrInvalidParams.WithMessage("external_ref is required only for deposit role")
 		}
 
-		if role.Kind == RoleKindSingle {
+		if role.Kind == constants.RoleKindSingle {
 			exists, err := s.repo.HasActiveKey(ctx, tx, role.ID)
 			if err != nil {
 				return err
@@ -100,7 +100,7 @@ func (s *Service) addKey(
 			}
 		}
 
-		key, err = s.insertKey(ctx, tx, role, alias, externalRef, KeyStatusActive, makeKey)
+		key, err = s.insertKey(ctx, tx, role, alias, externalRef, constants.KeyStatusActive, makeKey)
 		return err
 	})
 	if err != nil {
@@ -118,7 +118,7 @@ func (s *Service) insertKey(
 	tx db.DBTX,
 	role *Role,
 	alias, externalRef *string,
-	status KeyStatus,
+	status constants.KeyStatus,
 	makeKey func(keys networkKeys) ([]byte, string, error),
 ) (*WalletKey, error) {
 	privateKey, address, err := makeKey(keysByNetwork[role.Network])
@@ -177,11 +177,11 @@ func (s *Service) RotateKey(ctx context.Context, keyID uuid.UUID) (*WalletKey, e
 			return err
 		}
 
-		if old.Role.Kind == RoleKindDeposit {
+		if old.Role.Kind == constants.RoleKindDeposit {
 			return ErrInvalidParams.WithMessage("deposit keys are not rotated")
 		}
 
-		if old.Status != KeyStatusActive {
+		if old.Status != constants.KeyStatusActive {
 			return ErrInvalidKeyStatus.WithMessage("only active key can be rotated")
 		}
 
@@ -194,7 +194,7 @@ func (s *Service) RotateKey(ctx context.Context, keyID uuid.UUID) (*WalletKey, e
 			return err
 		}
 
-		replacement, err = s.insertKey(ctx, tx, role, old.Alias, nil, KeyStatusPending, generateKey)
+		replacement, err = s.insertKey(ctx, tx, role, old.Alias, nil, constants.KeyStatusPending, generateKey)
 		if err != nil {
 			return err
 		}
@@ -218,7 +218,7 @@ func (s *Service) ActivateKey(ctx context.Context, keyID uuid.UUID) (*WalletKey,
 			return err
 		}
 
-		if key.Status != KeyStatusPending {
+		if key.Status != constants.KeyStatusPending {
 			return ErrInvalidKeyStatus.WithMessage("only pending key can be activated")
 		}
 
@@ -232,13 +232,13 @@ func (s *Service) ActivateKey(ctx context.Context, keyID uuid.UUID) (*WalletKey,
 			return err
 		}
 
-		if old != nil && old.Status == KeyStatusActive {
-			if err := s.repo.UpdateKeyStatus(ctx, tx, old.ID, KeyStatusRotating, now); err != nil {
+		if old != nil && old.Status == constants.KeyStatusActive {
+			if err := s.repo.UpdateKeyStatus(ctx, tx, old.ID, constants.KeyStatusRotating, now); err != nil {
 				return err
 			}
 		}
 
-		if key.Role.Kind == RoleKindSingle {
+		if key.Role.Kind == constants.RoleKindSingle {
 			exists, err := s.repo.HasActiveKey(ctx, tx, key.RoleID)
 			if err != nil {
 				return err
@@ -249,8 +249,8 @@ func (s *Service) ActivateKey(ctx context.Context, keyID uuid.UUID) (*WalletKey,
 			}
 		}
 
-		key.Status = KeyStatusActive
-		return s.repo.UpdateKeyStatus(ctx, tx, key.ID, KeyStatusActive, now)
+		key.Status = constants.KeyStatusActive
+		return s.repo.UpdateKeyStatus(ctx, tx, key.ID, constants.KeyStatusActive, now)
 	})
 	if err != nil {
 		return nil, err
@@ -269,12 +269,12 @@ func (s *Service) RevokeKey(ctx context.Context, keyID uuid.UUID) (*WalletKey, e
 			return err
 		}
 
-		if key.Status == KeyStatusRevoked {
+		if key.Status == constants.KeyStatusRevoked {
 			return ErrInvalidKeyStatus.WithMessage("key is already revoked")
 		}
 
 		now := time.Now().UTC()
-		if key.Status == KeyStatusPending {
+		if key.Status == constants.KeyStatusPending {
 			old, err := s.repo.GetReplacedKeyForUpdate(ctx, tx, key.ID)
 			if err != nil && !errors.Is(err, ErrKeyNotFound) {
 				return err
@@ -287,8 +287,8 @@ func (s *Service) RevokeKey(ctx context.Context, keyID uuid.UUID) (*WalletKey, e
 			}
 		}
 
-		key.Status = KeyStatusRevoked
-		return s.repo.UpdateKeyStatus(ctx, tx, key.ID, KeyStatusRevoked, now)
+		key.Status = constants.KeyStatusRevoked
+		return s.repo.UpdateKeyStatus(ctx, tx, key.ID, constants.KeyStatusRevoked, now)
 	})
 	if err != nil {
 		return nil, err
@@ -300,14 +300,14 @@ func (s *Service) RevokeKey(ctx context.Context, keyID uuid.UUID) (*WalletKey, e
 }
 
 func (s *Service) DisableKey(ctx context.Context, keyID uuid.UUID) (*WalletKey, error) {
-	return s.switchKey(ctx, keyID, KeyStatusActive, KeyStatusDisabled, "wallet key disabled")
+	return s.switchKey(ctx, keyID, constants.KeyStatusActive, constants.KeyStatusDisabled, "wallet key disabled")
 }
 
 func (s *Service) EnableKey(ctx context.Context, keyID uuid.UUID) (*WalletKey, error) {
-	return s.switchKey(ctx, keyID, KeyStatusDisabled, KeyStatusActive, "wallet key enabled")
+	return s.switchKey(ctx, keyID, constants.KeyStatusDisabled, constants.KeyStatusActive, "wallet key enabled")
 }
 
-func (s *Service) switchKey(ctx context.Context, keyID uuid.UUID, from, to KeyStatus, message string) (*WalletKey, error) {
+func (s *Service) switchKey(ctx context.Context, keyID uuid.UUID, from, to constants.KeyStatus, message string) (*WalletKey, error) {
 	var key *WalletKey
 	err := s.txm.WithTx(ctx, func(ctx context.Context, tx db.DBTX) error {
 		var err error
@@ -323,7 +323,7 @@ func (s *Service) switchKey(ctx context.Context, keyID uuid.UUID, from, to KeySt
 			return err
 		}
 
-		if to == KeyStatusActive && key.Role.Kind == RoleKindSingle {
+		if to == constants.KeyStatusActive && key.Role.Kind == constants.RoleKindSingle {
 			exists, err := s.repo.HasActiveKey(ctx, tx, key.RoleID)
 			if err != nil {
 				return err
@@ -352,7 +352,7 @@ func (s *Service) GetRoleKeys(ctx context.Context, params GetRoleKeyParams) ([]W
 		return nil, err
 	}
 
-	if role.Kind == RoleKindDeposit {
+	if role.Kind == constants.RoleKindDeposit {
 		return nil, ErrInvalidParams.WithMessage("deposit role keys are not listed")
 	}
 
@@ -374,7 +374,7 @@ func (s *Service) GetRoleKey(ctx context.Context, params GetRoleKeyParams) (*Wal
 		return nil, err
 	}
 
-	if role.Kind != RoleKindSingle {
+	if role.Kind != constants.RoleKindSingle {
 		return nil, ErrInvalidParams.WithMessage("role is not single")
 	}
 
@@ -400,7 +400,7 @@ func (s *Service) GetOrCreateDepositKey(ctx context.Context, params GetDepositKe
 		return nil, err
 	}
 
-	if role.Kind != RoleKindDeposit {
+	if role.Kind != constants.RoleKindDeposit {
 		return nil, ErrInvalidParams.WithMessage("role is not deposit")
 	}
 
@@ -428,9 +428,9 @@ func (s *Service) GetOrCreateDepositKey(ctx context.Context, params GetDepositKe
 	return key, err
 }
 
-func isSigningAllowed(status KeyStatus) bool {
+func isSigningAllowed(status constants.KeyStatus) bool {
 	switch status {
-	case KeyStatusActive, KeyStatusRotating, KeyStatusPending:
+	case constants.KeyStatusActive, constants.KeyStatusRotating, constants.KeyStatusPending:
 		return true
 	}
 

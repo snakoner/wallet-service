@@ -13,7 +13,6 @@ import (
 	"github.com/google/uuid"
 
 	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/constants"
-	keystorage "gitlab.tve-development.com/backend/gtoken/wallet-service/internal/features/key_storage"
 )
 
 type issuedKey struct {
@@ -84,8 +83,8 @@ func TestAdminServiceClients(t *testing.T) {
 
 func TestAdminImportKey(t *testing.T) {
 	e := newEnv(t)
-	role := e.role("gas_station", constants.NetworkEthereum, keystorage.RoleKindSingle, gasStationPolicy)
-	deposit := e.key(e.role("deposit", constants.NetworkEthereum, keystorage.RoleKindDeposit, ""), "order-1")
+	role := e.role("gas_station", constants.NetworkEthereum, constants.RoleKindSingle, gasStationPolicy)
+	deposit := e.key(e.role("deposit", constants.NetworkEthereum, constants.RoleKindDeposit, ""), "order-1")
 
 	privateKey, err := crypto.GenerateKey()
 	if err != nil {

@@ -12,7 +12,7 @@ type CreateRoleRequest struct {
 	Purpose string          `json:"purpose" binding:"required"`
 	Label   string          `json:"label"`
 	Network string          `json:"network" binding:"required,network"`
-	Kind    string          `json:"kind" binding:"required,oneof=single pool deposit"`
+	Kind    string          `json:"kind" binding:"required,role_kind" enums:"single,pool,deposit"`
 	Policy  json.RawMessage `json:"policy" swaggertype:"object"`
 }
 

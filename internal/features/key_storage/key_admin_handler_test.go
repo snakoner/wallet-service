@@ -56,7 +56,7 @@ func TestAdminListKeys(t *testing.T) {
 	}
 	f := svc.keysFilter
 	if f.Service == nil || *f.Service != "exchange" || f.Purpose == nil || *f.Purpose != "executor" || f.Label == nil || *f.Label != "" ||
-		f.Network == nil || *f.Network != constants.NetworkEthereum || f.Status == nil || *f.Status != KeyStatusActive ||
+		f.Network == nil || *f.Network != constants.NetworkEthereum || f.Status == nil || *f.Status != constants.KeyStatusActive ||
 		f.ExternalRef == nil || *f.ExternalRef != "o-1" || f.Limit != 10 {
 		t.Fatalf("filter = %+v", f)
 	}

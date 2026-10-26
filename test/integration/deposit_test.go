@@ -12,7 +12,6 @@ import (
 	"github.com/google/uuid"
 
 	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/constants"
-	keystorage "gitlab.tve-development.com/backend/gtoken/wallet-service/internal/features/key_storage"
 )
 
 type depositKeyView struct {
@@ -31,8 +30,8 @@ func (e *env) depositKey(externalRef string) (int, apiResponse, depositKeyView) 
 
 func TestDepositKey(t *testing.T) {
 	e := newEnv(t)
-	gas := e.key(e.role("gas_station", constants.NetworkEthereum, keystorage.RoleKindSingle, ""), "")
-	e.role("deposit", constants.NetworkEthereum, keystorage.RoleKindDeposit, `{"version":1,"rules":[{"op":"native","to":["internal:gas_station"]}]}`)
+	gas := e.key(e.role("gas_station", constants.NetworkEthereum, constants.RoleKindSingle, ""), "")
+	e.role("deposit", constants.NetworkEthereum, constants.RoleKindDeposit, `{"version":1,"rules":[{"op":"native","to":["internal:gas_station"]}]}`)
 
 	status, res, key := e.depositKey("order-1")
 	if status != http.StatusOK || key.ExternalRef != "order-1" || key.Kind != "deposit" || key.Address == "" {

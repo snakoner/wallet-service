@@ -12,7 +12,6 @@ import (
 	"github.com/google/uuid"
 
 	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/constants"
-	keystorage "gitlab.tve-development.com/backend/gtoken/wallet-service/internal/features/key_storage"
 )
 
 type leaseView struct {
@@ -22,8 +21,8 @@ type leaseView struct {
 
 func TestLeasePoolKey(t *testing.T) {
 	e := newEnv(t)
-	executor := e.key(e.role("executor", constants.NetworkEthereum, keystorage.RoleKindPool, `{"version":1,"rules":[{"op":"native","to":["internal:deposit"]}]}`), "")
-	deposit := e.key(e.role("deposit", constants.NetworkEthereum, keystorage.RoleKindDeposit, ""), "order-1")
+	executor := e.key(e.role("executor", constants.NetworkEthereum, constants.RoleKindPool, `{"version":1,"rules":[{"op":"native","to":["internal:deposit"]}]}`), "")
+	deposit := e.key(e.role("deposit", constants.NetworkEthereum, constants.RoleKindDeposit, ""), "order-1")
 	e.fund(executor.Address, oneEth)
 
 	var lease leaseView
@@ -98,8 +97,8 @@ func TestLeasePoolKey(t *testing.T) {
 
 func TestLeaseSingleKey(t *testing.T) {
 	e := newEnv(t)
-	gas := e.key(e.role("gas_station", constants.NetworkEthereum, keystorage.RoleKindSingle, gasStationPolicy), "")
-	deposit := e.key(e.role("deposit", constants.NetworkEthereum, keystorage.RoleKindDeposit, ""), "order-1")
+	gas := e.key(e.role("gas_station", constants.NetworkEthereum, constants.RoleKindSingle, gasStationPolicy), "")
+	deposit := e.key(e.role("deposit", constants.NetworkEthereum, constants.RoleKindDeposit, ""), "order-1")
 	raw, err := e.unsignedTx(0, common.HexToAddress(deposit.Address), big.NewInt(1), true).MarshalBinary()
 	if err != nil {
 		t.Fatal(err)

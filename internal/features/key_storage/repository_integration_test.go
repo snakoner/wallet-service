@@ -49,7 +49,7 @@ func uniqueService() string {
 	return "it-" + uuid.NewString()[:8]
 }
 
-func createIntegrationRole(t *testing.T, srv *Service, service, purpose string, network constants.Network, kind RoleKind, policy string) *Role {
+func createIntegrationRole(t *testing.T, srv *Service, service, purpose string, network constants.Network, kind constants.RoleKind, policy string) *Role {
 	t.Helper()
 	role, err := srv.CreateRole(context.Background(), CreateRoleParams{Service: service, Purpose: purpose, Network: network, Kind: kind, Policy: []byte(policy)})
 	if err != nil {

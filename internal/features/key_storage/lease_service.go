@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/constants"
 )
 
 const (
@@ -28,7 +29,7 @@ func (s *Service) AcquireLease(ctx context.Context, params AcquireLeaseParams) (
 		return nil, err
 	}
 
-	if role.Kind == RoleKindDeposit {
+	if role.Kind == constants.RoleKindDeposit {
 		return nil, ErrInvalidParams.WithMessage("deposit keys are not leased")
 	}
 
@@ -70,7 +71,7 @@ func (s *Service) ForceReleaseLease(ctx context.Context, keyID uuid.UUID) error 
 // checkLease: pool key signs only with its live lease; any key under live lease signs only with that lease.
 func checkLease(key *WalletKey, leaseID *uuid.UUID) error {
 	switch {
-	case key.Role.Kind == RoleKindPool && leaseID == nil:
+	case key.Role.Kind == constants.RoleKindPool && leaseID == nil:
 		return ErrLeaseRequired
 	case key.LeaseActive && leaseID == nil:
 		return ErrKeyLeased

@@ -51,8 +51,15 @@ const docTemplate = `{
                         "in": "query"
                     },
                     {
+                        "enum": [
+                            "active",
+                            "rotating",
+                            "pending",
+                            "disabled",
+                            "revoked"
+                        ],
                         "type": "string",
-                        "description": "Status: active, rotating, pending, disabled, revoked",
+                        "description": "Key status",
                         "name": "status",
                         "in": "query"
                     },

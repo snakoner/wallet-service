@@ -17,13 +17,13 @@ func TestCreateKey(t *testing.T) {
 		t.Run(network.String(), func(t *testing.T) {
 			repo := &repoStub{}
 			srv := newTestService(t, repo)
-			role := createTestRole(t, srv, network, RoleKindSingle)
+			role := createTestRole(t, srv, network, constants.RoleKindSingle)
 
 			key, err := srv.CreateKey(context.Background(), CreateKeyParams{RoleID: role.ID})
 			if err != nil {
 				t.Fatalf("CreateKey() error = %v", err)
 			}
-			if key.RoleID != role.ID || key.Role.Service != "exchange" || key.Network != network || key.Status != KeyStatusActive || len(repo.keys) != 1 {
+			if key.RoleID != role.ID || key.Role.Service != "exchange" || key.Network != network || key.Status != constants.KeyStatusActive || len(repo.keys) != 1 {
 				t.Fatalf("unexpected key: %+v", key)
 			}
 
@@ -43,7 +43,7 @@ func TestCreateKeyByKind(t *testing.T) {
 	srv := newTestService(t, repo)
 	ctx := context.Background()
 
-	single := createTestRole(t, srv, constants.NetworkEthereum, RoleKindSingle)
+	single := createTestRole(t, srv, constants.NetworkEthereum, constants.RoleKindSingle)
 	if _, err := srv.CreateKey(ctx, CreateKeyParams{RoleID: single.ID}); err != nil {
 		t.Fatal(err)
 	}
@@ -51,14 +51,14 @@ func TestCreateKeyByKind(t *testing.T) {
 		t.Fatalf("single second key: err = %v", err)
 	}
 
-	pool := createTestRole(t, srv, constants.NetworkEthereum, RoleKindPool)
+	pool := createTestRole(t, srv, constants.NetworkEthereum, constants.RoleKindPool)
 	for range 2 {
 		if _, err := srv.CreateKey(ctx, CreateKeyParams{RoleID: pool.ID}); err != nil {
 			t.Fatalf("pool key: err = %v", err)
 		}
 	}
 
-	deposit := createTestRole(t, srv, constants.NetworkEthereum, RoleKindDeposit)
+	deposit := createTestRole(t, srv, constants.NetworkEthereum, constants.RoleKindDeposit)
 	if _, err := srv.CreateKey(ctx, CreateKeyParams{RoleID: deposit.ID}); !errors.Is(err, ErrInvalidParams) {
 		t.Fatalf("deposit without ref: err = %v", err)
 	}
@@ -82,7 +82,7 @@ func TestImportKey(t *testing.T) {
 	for _, network := range []constants.Network{constants.NetworkEthereum, constants.NetworkTron} {
 		t.Run(network.String(), func(t *testing.T) {
 			srv := newTestService(t, &repoStub{})
-			role := createTestRole(t, srv, network, RoleKindPool)
+			role := createTestRole(t, srv, network, constants.RoleKindPool)
 
 			privateKey, address, err := keysByNetwork[network].generate()
 			if err != nil {
@@ -115,7 +115,7 @@ func TestImportKey(t *testing.T) {
 	}
 
 	srv := newTestService(t, &repoStub{})
-	role := createTestRole(t, srv, constants.NetworkEthereum, RoleKindPool)
+	role := createTestRole(t, srv, constants.NetworkEthereum, constants.RoleKindPool)
 	for name, privateKey := range map[string]string{"short": "abcd", "not hex": hex.EncodeToString(make([]byte, 31)) + "zz", "zero key": hex.EncodeToString(make([]byte, 32))} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := srv.ImportKey(context.Background(), ImportKeyParams{RoleID: role.ID, PrivateKey: []byte(privateKey)}); !errors.Is(err, ErrInvalidParams) {
@@ -130,7 +130,7 @@ func TestGetRoleKey(t *testing.T) {
 	srv := newTestService(t, repo)
 	ctx := context.Background()
 
-	single := createTestRole(t, srv, constants.NetworkTron, RoleKindSingle)
+	single := createTestRole(t, srv, constants.NetworkTron, constants.RoleKindSingle)
 	params := GetRoleKeyParams{Service: "exchange", Purpose: "gas_station", Label: "single", Network: constants.NetworkTron}
 	if _, err := srv.GetRoleKey(ctx, params); !errors.Is(err, ErrKeyNotFound) {
 		t.Fatalf("no key: err = %v", err)
@@ -145,7 +145,7 @@ func TestGetRoleKey(t *testing.T) {
 		t.Fatalf("GetRoleKey() = %+v, %v", key, err)
 	}
 
-	createTestRole(t, srv, constants.NetworkTron, RoleKindPool)
+	createTestRole(t, srv, constants.NetworkTron, constants.RoleKindPool)
 	if _, err := srv.GetRoleKey(ctx, GetRoleKeyParams{Service: "exchange", Purpose: "gas_station", Label: "pool", Network: constants.NetworkTron}); !errors.Is(err, ErrInvalidParams) {
 		t.Fatalf("pool role: err = %v", err)
 	}
@@ -160,14 +160,14 @@ func TestGetOrCreateDepositKey(t *testing.T) {
 	srv := newTestService(t, repo)
 	ctx := context.Background()
 
-	createTestRole(t, srv, constants.NetworkTron, RoleKindDeposit)
+	createTestRole(t, srv, constants.NetworkTron, constants.RoleKindDeposit)
 	params := GetDepositKeyParams{Service: "exchange", Purpose: "gas_station", Label: "deposit", Network: constants.NetworkTron, ExternalRef: " order-1 "}
 
 	created, err := srv.GetOrCreateDepositKey(ctx, params)
 	if err != nil {
 		t.Fatalf("GetDepositKey() error = %v", err)
 	}
-	if *created.ExternalRef != "order-1" || created.Status != KeyStatusActive || created.Role.Kind != RoleKindDeposit {
+	if *created.ExternalRef != "order-1" || created.Status != constants.KeyStatusActive || created.Role.Kind != constants.RoleKindDeposit {
 		t.Fatalf("key = %+v", created)
 	}
 
@@ -182,7 +182,7 @@ func TestGetOrCreateDepositKey(t *testing.T) {
 		t.Fatalf("other ref: key = %+v, err = %v", other, err)
 	}
 
-	createTestRole(t, srv, constants.NetworkTron, RoleKindPool)
+	createTestRole(t, srv, constants.NetworkTron, constants.RoleKindPool)
 	cases := map[string]struct {
 		params GetDepositKeyParams
 		err    error
@@ -200,11 +200,11 @@ func TestGetOrCreateDepositKey(t *testing.T) {
 	}
 }
 
-func newSigningTestKey(t *testing.T, network constants.Network, status KeyStatus) (*Service, *WalletKey) {
+func newSigningTestKey(t *testing.T, network constants.Network, status constants.KeyStatus) (*Service, *WalletKey) {
 	t.Helper()
 	repo := &repoStub{}
 	srv := newTestService(t, repo)
-	role := createTestRole(t, srv, network, RoleKindSingle)
+	role := createTestRole(t, srv, network, constants.RoleKindSingle)
 	key, err := srv.CreateKey(context.Background(), CreateKeyParams{RoleID: role.ID})
 	if err != nil {
 		t.Fatal(err)
@@ -215,7 +215,7 @@ func newSigningTestKey(t *testing.T, network constants.Network, status KeyStatus
 }
 
 func TestUseSigningKey(t *testing.T) {
-	for _, status := range []KeyStatus{KeyStatusActive, KeyStatusRotating} {
+	for _, status := range []constants.KeyStatus{constants.KeyStatusActive, constants.KeyStatusRotating} {
 		t.Run(status.String(), func(t *testing.T) {
 			srv, key := newSigningTestKey(t, constants.NetworkEthereum, status)
 
@@ -248,12 +248,12 @@ func TestUseSigningKeyErrors(t *testing.T) {
 		name       string
 		keyNetwork constants.Network
 		network    constants.Network
-		status     KeyStatus
+		status     constants.KeyStatus
 		want       error
 	}{
-		{"key network mismatch", tron, eth, KeyStatusActive, ErrInvalidParams},
-		{"disabled key", eth, eth, KeyStatusDisabled, ErrKeyNotActive},
-		{"revoked key", eth, eth, KeyStatusRevoked, ErrKeyNotActive},
+		{"key network mismatch", tron, eth, constants.KeyStatusActive, ErrInvalidParams},
+		{"disabled key", eth, eth, constants.KeyStatusDisabled, ErrKeyNotActive},
+		{"revoked key", eth, eth, constants.KeyStatusRevoked, ErrKeyNotActive},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -268,7 +268,7 @@ func TestUseSigningKeyErrors(t *testing.T) {
 		})
 	}
 
-	srv, key := newSigningTestKey(t, eth, KeyStatusActive)
+	srv, key := newSigningTestKey(t, eth, constants.KeyStatusActive)
 	if err := srv.UseSigningKey(context.Background(), "banknote", key.ID, eth, nil, func(*WalletKey) error { return nil }, func(*WalletKey, []byte) error { return nil }); !errors.Is(err, ErrKeyNotFound) {
 		t.Fatalf("other service: err = %v", err)
 	}
@@ -280,7 +280,7 @@ func TestUseSigningKeyErrors(t *testing.T) {
 }
 
 func TestUseSigningKeyCheckBeforeDecrypt(t *testing.T) {
-	srv, key := newSigningTestKey(t, constants.NetworkEthereum, KeyStatusActive)
+	srv, key := newSigningTestKey(t, constants.NetworkEthereum, constants.KeyStatusActive)
 	key.KeyCipher = []byte("broken")
 
 	checkErr := errors.New("denied")
@@ -302,7 +302,7 @@ func TestUseSigningKeyCheckBeforeDecrypt(t *testing.T) {
 }
 
 func TestIsServiceAddress(t *testing.T) {
-	srv, key := newSigningTestKey(t, constants.NetworkEthereum, KeyStatusActive)
+	srv, key := newSigningTestKey(t, constants.NetworkEthereum, constants.KeyStatusActive)
 	ctx := context.Background()
 
 	for _, tc := range []struct {
@@ -321,7 +321,7 @@ func TestIsServiceAddress(t *testing.T) {
 		}
 	}
 
-	key.Status = KeyStatusRevoked
+	key.Status = constants.KeyStatusRevoked
 	if got, _ := srv.IsServiceAddress(ctx, "exchange", constants.NetworkEthereum, key.Address, ""); got {
 		t.Fatal("revoked key must not be internal")
 	}
@@ -331,7 +331,7 @@ func TestGetRoleKeys(t *testing.T) {
 	srv := newTestService(t, &repoStub{})
 	ctx := context.Background()
 
-	pool := createTestRole(t, srv, constants.NetworkEthereum, RoleKindPool)
+	pool := createTestRole(t, srv, constants.NetworkEthereum, constants.RoleKindPool)
 	for range 3 {
 		if _, err := srv.CreateKey(ctx, CreateKeyParams{RoleID: pool.ID}); err != nil {
 			t.Fatal(err)
@@ -340,16 +340,16 @@ func TestGetRoleKeys(t *testing.T) {
 
 	params := GetRoleKeyParams{Service: "exchange", Purpose: "gas_station", Label: "pool", Network: constants.NetworkEthereum}
 	keys, err := srv.GetRoleKeys(ctx, params)
-	if err != nil || len(keys) != 3 || keys[0].Role.Kind != RoleKindPool || keys[0].Role.Service != "exchange" {
+	if err != nil || len(keys) != 3 || keys[0].Role.Kind != constants.RoleKindPool || keys[0].Role.Service != "exchange" {
 		t.Fatalf("keys = %+v, err = %v", keys, err)
 	}
 
-	single := createTestRole(t, srv, constants.NetworkEthereum, RoleKindSingle)
+	single := createTestRole(t, srv, constants.NetworkEthereum, constants.RoleKindSingle)
 	if keys, err := srv.GetRoleKeys(ctx, GetRoleKeyParams{Service: "exchange", Purpose: "gas_station", Label: "single", Network: constants.NetworkEthereum}); err != nil || len(keys) != 0 {
 		t.Fatalf("single role %s without keys: keys = %v, err = %v", single.ID, keys, err)
 	}
 
-	createTestRole(t, srv, constants.NetworkEthereum, RoleKindDeposit)
+	createTestRole(t, srv, constants.NetworkEthereum, constants.RoleKindDeposit)
 	if _, err := srv.GetRoleKeys(ctx, GetRoleKeyParams{Service: "exchange", Purpose: "gas_station", Label: "deposit", Network: constants.NetworkEthereum}); !errors.Is(err, ErrInvalidParams) {
 		t.Fatalf("deposit role: err = %v", err)
 	}
@@ -365,8 +365,8 @@ func TestListKeys(t *testing.T) {
 	srv := newTestService(t, repo)
 	ctx := context.Background()
 
-	single := createTestRole(t, srv, constants.NetworkEthereum, RoleKindSingle)
-	pool := createTestRole(t, srv, constants.NetworkTron, RoleKindPool)
+	single := createTestRole(t, srv, constants.NetworkEthereum, constants.RoleKindSingle)
+	pool := createTestRole(t, srv, constants.NetworkTron, constants.RoleKindPool)
 	for _, roleID := range []uuid.UUID{single.ID, pool.ID, pool.ID} {
 		if _, err := srv.CreateKey(ctx, CreateKeyParams{RoleID: roleID}); err != nil {
 			t.Fatal(err)
@@ -383,7 +383,7 @@ func TestListKeys(t *testing.T) {
 	}
 
 	label := "single"
-	if keys, _ := srv.ListKeys(ctx, ListKeysFilter{Service: ptr("exchange"), Label: &label}); len(keys) != 1 || keys[0].Role.Kind != RoleKindSingle {
+	if keys, _ := srv.ListKeys(ctx, ListKeysFilter{Service: ptr("exchange"), Label: &label}); len(keys) != 1 || keys[0].Role.Kind != constants.RoleKindSingle {
 		t.Fatalf("label: keys = %+v", keys)
 	}
 }
@@ -393,7 +393,7 @@ func TestRotateKeyLifecycle(t *testing.T) {
 	srv := newTestService(t, repo)
 	ctx := context.Background()
 
-	role := createTestRole(t, srv, constants.NetworkEthereum, RoleKindSingle)
+	role := createTestRole(t, srv, constants.NetworkEthereum, constants.RoleKindSingle)
 	old, err := srv.CreateKey(ctx, CreateKeyParams{RoleID: role.ID, Alias: ptr("gas")})
 	if err != nil {
 		t.Fatal(err)
@@ -404,7 +404,7 @@ func TestRotateKeyLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RotateKey() error = %v", err)
 	}
-	if replacement.Status != KeyStatusPending || replacement.RoleID != role.ID || *replacement.Alias != "gas" || *old.ReplacedBy != replacement.ID {
+	if replacement.Status != constants.KeyStatusPending || replacement.RoleID != role.ID || *replacement.Alias != "gas" || *old.ReplacedBy != replacement.ID {
 		t.Fatalf("replacement = %+v, old = %+v", replacement, old)
 	}
 	if _, err := srv.RotateKey(ctx, old.ID); !errors.Is(err, ErrRotationInProgress) {
@@ -432,7 +432,7 @@ func TestRotateKeyLifecycle(t *testing.T) {
 	if _, err := srv.ActivateKey(ctx, replacement.ID); err != nil {
 		t.Fatalf("ActivateKey() error = %v", err)
 	}
-	if old.Status != KeyStatusRotating || old.RotatedAt == nil || replacement.Status != KeyStatusActive {
+	if old.Status != constants.KeyStatusRotating || old.RotatedAt == nil || replacement.Status != constants.KeyStatusActive {
 		t.Fatalf("old = %s, replacement = %s", old.Status, replacement.Status)
 	}
 	if key, _ := srv.GetRoleKey(ctx, params); key.ID != replacement.ID {
@@ -442,7 +442,7 @@ func TestRotateKeyLifecycle(t *testing.T) {
 		t.Fatalf("rotating key must sign: err = %v", err)
 	}
 
-	if _, err := srv.RevokeKey(ctx, old.ID); err != nil || old.Status != KeyStatusRevoked || old.RevokedAt == nil {
+	if _, err := srv.RevokeKey(ctx, old.ID); err != nil || old.Status != constants.KeyStatusRevoked || old.RevokedAt == nil {
 		t.Fatalf("RevokeKey() = %v, old = %+v", err, old)
 	}
 	if err := srv.UseSigningKey(ctx, "exchange", old.ID, constants.NetworkEthereum, nil, noop, func(*WalletKey, []byte) error { return nil }); !errors.Is(err, ErrKeyNotActive) {
@@ -454,7 +454,7 @@ func TestRotateKeyErrors(t *testing.T) {
 	srv := newTestService(t, &repoStub{})
 	ctx := context.Background()
 
-	deposit := createTestRole(t, srv, constants.NetworkEthereum, RoleKindDeposit)
+	deposit := createTestRole(t, srv, constants.NetworkEthereum, constants.RoleKindDeposit)
 	depositKey, err := srv.CreateKey(ctx, CreateKeyParams{RoleID: deposit.ID, ExternalRef: ptr("order-1")})
 	if err != nil {
 		t.Fatal(err)
@@ -463,7 +463,7 @@ func TestRotateKeyErrors(t *testing.T) {
 		t.Fatalf("deposit key: err = %v", err)
 	}
 
-	role := createTestRole(t, srv, constants.NetworkEthereum, RoleKindSingle)
+	role := createTestRole(t, srv, constants.NetworkEthereum, constants.RoleKindSingle)
 	key, err := srv.CreateKey(ctx, CreateKeyParams{RoleID: role.ID})
 	if err != nil {
 		t.Fatal(err)
@@ -492,7 +492,7 @@ func TestCancelRotation(t *testing.T) {
 	srv := newTestService(t, &repoStub{})
 	ctx := context.Background()
 
-	role := createTestRole(t, srv, constants.NetworkEthereum, RoleKindSingle)
+	role := createTestRole(t, srv, constants.NetworkEthereum, constants.RoleKindSingle)
 	old, err := srv.CreateKey(ctx, CreateKeyParams{RoleID: role.ID})
 	if err != nil {
 		t.Fatal(err)
@@ -505,7 +505,7 @@ func TestCancelRotation(t *testing.T) {
 	if _, err := srv.RevokeKey(ctx, replacement.ID); err != nil {
 		t.Fatalf("revoke pending: err = %v", err)
 	}
-	if old.ReplacedBy != nil || old.Status != KeyStatusActive {
+	if old.ReplacedBy != nil || old.Status != constants.KeyStatusActive {
 		t.Fatalf("old after cancel = %+v", old)
 	}
 	if _, err := srv.RotateKey(ctx, old.ID); err != nil {
@@ -518,7 +518,7 @@ func TestRotatePoolKey(t *testing.T) {
 	srv := newTestService(t, repo)
 	ctx := context.Background()
 
-	pool := createTestRole(t, srv, constants.NetworkEthereum, RoleKindPool)
+	pool := createTestRole(t, srv, constants.NetworkEthereum, constants.RoleKindPool)
 	first, _ := srv.CreateKey(ctx, CreateKeyParams{RoleID: pool.ID})
 	if _, err := srv.CreateKey(ctx, CreateKeyParams{RoleID: pool.ID}); err != nil {
 		t.Fatal(err)
@@ -532,11 +532,11 @@ func TestRotatePoolKey(t *testing.T) {
 		t.Fatalf("activate pool key: err = %v", err)
 	}
 
-	statuses := map[KeyStatus]int{}
+	statuses := map[constants.KeyStatus]int{}
 	for _, key := range repo.keys {
 		statuses[key.Status]++
 	}
-	if statuses[KeyStatusActive] != 2 || statuses[KeyStatusRotating] != 1 {
+	if statuses[constants.KeyStatusActive] != 2 || statuses[constants.KeyStatusRotating] != 1 {
 		t.Fatalf("statuses = %v", statuses)
 	}
 }
@@ -545,19 +545,19 @@ func TestDisableEnableKey(t *testing.T) {
 	srv := newTestService(t, &repoStub{})
 	ctx := context.Background()
 
-	role := createTestRole(t, srv, constants.NetworkEthereum, RoleKindSingle)
+	role := createTestRole(t, srv, constants.NetworkEthereum, constants.RoleKindSingle)
 	key, err := srv.CreateKey(ctx, CreateKeyParams{RoleID: role.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if _, err := srv.DisableKey(ctx, key.ID); err != nil || key.Status != KeyStatusDisabled {
+	if _, err := srv.DisableKey(ctx, key.ID); err != nil || key.Status != constants.KeyStatusDisabled {
 		t.Fatalf("disable: err = %v, status = %s", err, key.Status)
 	}
 	if _, err := srv.DisableKey(ctx, key.ID); !errors.Is(err, ErrInvalidKeyStatus) {
 		t.Fatalf("disable twice: err = %v", err)
 	}
-	if _, err := srv.EnableKey(ctx, key.ID); err != nil || key.Status != KeyStatusActive {
+	if _, err := srv.EnableKey(ctx, key.ID); err != nil || key.Status != constants.KeyStatusActive {
 		t.Fatalf("enable: err = %v, status = %s", err, key.Status)
 	}
 

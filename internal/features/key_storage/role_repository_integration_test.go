@@ -15,17 +15,17 @@ import (
 func TestIntegrationRoleUnique(t *testing.T) {
 	srv, _ := newIntegrationService(t)
 	service := uniqueService()
-	createIntegrationRole(t, srv, service, "gas_station", constants.NetworkEthereum, RoleKindSingle, "")
+	createIntegrationRole(t, srv, service, "gas_station", constants.NetworkEthereum, constants.RoleKindSingle, "")
 
-	_, err := srv.CreateRole(context.Background(), CreateRoleParams{Service: service, Purpose: "gas_station", Network: constants.NetworkEthereum, Kind: RoleKindPool})
+	_, err := srv.CreateRole(context.Background(), CreateRoleParams{Service: service, Purpose: "gas_station", Network: constants.NetworkEthereum, Kind: constants.RoleKindPool})
 	if !errors.Is(err, ErrRoleExists) {
 		t.Fatalf("duplicate role: err = %v", err)
 	}
 
-	if _, err := srv.CreateRole(context.Background(), CreateRoleParams{Service: service, Purpose: "gas_station", Network: constants.NetworkTron, Kind: RoleKindSingle}); err != nil {
+	if _, err := srv.CreateRole(context.Background(), CreateRoleParams{Service: service, Purpose: "gas_station", Network: constants.NetworkTron, Kind: constants.RoleKindSingle}); err != nil {
 		t.Fatalf("other network: err = %v", err)
 	}
-	if _, err := srv.CreateRole(context.Background(), CreateRoleParams{Service: service, Purpose: "gas_station", Label: "atoken", Network: constants.NetworkEthereum, Kind: RoleKindSingle}); err != nil {
+	if _, err := srv.CreateRole(context.Background(), CreateRoleParams{Service: service, Purpose: "gas_station", Label: "atoken", Network: constants.NetworkEthereum, Kind: constants.RoleKindSingle}); err != nil {
 		t.Fatalf("other label: err = %v", err)
 	}
 }
@@ -35,7 +35,7 @@ func TestIntegrationUpdatePolicy(t *testing.T) {
 	ctx := context.Background()
 	service := uniqueService()
 
-	role := createIntegrationRole(t, srv, service, "gas_station", constants.NetworkEthereum, RoleKindSingle, "")
+	role := createIntegrationRole(t, srv, service, "gas_station", constants.NetworkEthereum, constants.RoleKindSingle, "")
 	if _, err := srv.UpdatePolicy(ctx, role.ID, []byte(`{"version":1,"rules":[{"op":"native","to":["internal:deposit"]}]}`)); err != nil {
 		t.Fatal(err)
 	}

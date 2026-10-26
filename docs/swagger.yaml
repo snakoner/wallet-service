@@ -278,7 +278,13 @@ paths:
         in: query
         name: network
         type: string
-      - description: 'Status: active, rotating, pending, disabled, revoked'
+      - description: Key status
+        enum:
+        - active
+        - rotating
+        - pending
+        - disabled
+        - revoked
         in: query
         name: status
         type: string

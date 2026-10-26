@@ -37,9 +37,9 @@ func (r *Repository) IsServiceAddress(
 		service,
 		network,
 		address,
-		KeyStatusActive,
-		KeyStatusRotating,
-		KeyStatusPending,
+		constants.KeyStatusActive,
+		constants.KeyStatusRotating,
+		constants.KeyStatusPending,
 		purpose,
 	).Scan(&exists); err != nil {
 		return false, fmt.Errorf("select service address: %w", err)
@@ -53,7 +53,7 @@ func (r *Repository) HasActiveKey(ctx context.Context, tx db.DBTX, roleID uuid.U
 	if err := tx.QueryRow(ctx, `
 		SELECT EXISTS (SELECT 1 FROM wallet_keys WHERE role_id = $1 AND status = $2)`,
 		roleID,
-		KeyStatusActive,
+		constants.KeyStatusActive,
 	).Scan(&exists); err != nil {
 		return false, fmt.Errorf("select active wallet key: %w", err)
 	}
@@ -196,7 +196,7 @@ func (r *Repository) GetActiveKey(ctx context.Context, tx db.DBTX, roleID uuid.U
 		AND 
 			status = $2`,
 		roleID,
-		KeyStatusActive,
+		constants.KeyStatusActive,
 	).Scan(
 		&key.ID,
 		&key.RoleID,
@@ -513,12 +513,12 @@ func scanLockedKey(row pgx.Row) (*WalletKey, error) {
 	return &key, nil
 }
 
-func (r *Repository) UpdateKeyStatus(ctx context.Context, tx db.DBTX, id uuid.UUID, status KeyStatus, now time.Time) error {
+func (r *Repository) UpdateKeyStatus(ctx context.Context, tx db.DBTX, id uuid.UUID, status constants.KeyStatus, now time.Time) error {
 	var rotatedAt, revokedAt *time.Time
 	switch status {
-	case KeyStatusRotating:
+	case constants.KeyStatusRotating:
 		rotatedAt = &now
-	case KeyStatusRevoked:
+	case constants.KeyStatusRevoked:
 		revokedAt = &now
 	}
 
