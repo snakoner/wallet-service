@@ -330,6 +330,16 @@ WALLET_SERVICE_KEY=... ETH_RPC_URL=https://... go run ./cmd/gas-station-send -to
 
 Без `-send` только печатает `tx_hash` и подписанную tx. Получатель должен быть разрешён политикой газового кошелька, иначе `403 POLICY_VIOLATION`. Справка — запуск без флагов.
 
+### `cmd/tron-gas-station-send` — отправка TRX с газового кошелька
+
+То же для Tron: берёт текущий ключ (`GET /roles/gas_station/key?network=tron`), собирает перевод TRX через ноду (`/wallet/createtransaction`), подписывает `raw_data_hex` через `sign-transaction`, сверяет `tx_hash` с `txID` ноды и, с `-send`, отправляет через `/wallet/broadcasthex`.
+
+```bash
+WALLET_SERVICE_KEY=... TRON_NODE_URL=https://nile.trongrid.io go run ./cmd/tron-gas-station-send -to T... -amount 1 [-purpose gas_station] [-label atoken] [-node-key <TronGrid key>] [-send]
+```
+
+Сумма в TRX, до 6 знаков после запятой. Адрес газового кошелька должен существовать в сети (иметь баланс), иначе нода не соберёт транзакцию. Перевод на ещё не активированный адрес дополнительно сжигает около 1 TRX за активацию. Транзакция действительна около минуты после сборки: без `-send` её нужно отправить сразу.
+
 ## Тесты
 
 ```bash
