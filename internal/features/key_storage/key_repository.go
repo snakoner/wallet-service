@@ -122,7 +122,8 @@ func (r *Repository) GetKey(ctx context.Context, tx db.DBTX, id uuid.UUID, servi
 			k.revoked_at,
 			rk.address,
 			k.lease_id,
-			k.lease_id IS NOT NULL AND k.leased_until > `+nowUTC+`,`+roleColumns+`
+			k.lease_id IS NOT NULL AND k.leased_until > `+nowUTC+`,
+			k.lease_id IS NOT NULL AND k.leased_until <= `+nowUTC+` + interval '10 seconds',`+roleColumns+`
 		FROM 
 			wallet_keys k
 		JOIN wallet_roles r ON r.id = k.role_id
@@ -152,6 +153,7 @@ func (r *Repository) GetKey(ctx context.Context, tx db.DBTX, id uuid.UUID, servi
 		&key.ReplacementAddress,
 		&key.LeaseID,
 		&key.LeaseActive,
+		&key.LeaseEnding,
 		&key.Role.ID,
 		&key.Role.Service,
 		&key.Role.Purpose,

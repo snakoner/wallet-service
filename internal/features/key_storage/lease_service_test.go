@@ -74,7 +74,8 @@ func TestLease(t *testing.T) {
 }
 
 func TestLeaseSingleKey(t *testing.T) {
-	srv := newTestService(t, &repoStub{})
+	repo := &repoStub{}
+	srv := newTestService(t, repo)
 	ctx := context.Background()
 
 	role := createTestRole(t, srv, constants.NetworkEthereum, constants.RoleKindSingle)
@@ -84,7 +85,7 @@ func TestLeaseSingleKey(t *testing.T) {
 		return srv.UseSigningKey(ctx, "exchange", key.ID, constants.NetworkEthereum, leaseID, noop, func(*WalletKey, []byte) error { return nil })
 	}
 
-	if err := sign(nil); err != nil {
+	if err := sign(nil); !errors.Is(err, ErrLeaseRequired) {
 		t.Fatalf("single key without lease: err = %v", err)
 	}
 
@@ -92,17 +93,46 @@ func TestLeaseSingleKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := sign(nil); !errors.Is(err, ErrKeyLeased) {
-		t.Fatalf("leased single key without lease: err = %v", err)
-	}
 	if err := sign(&lease.ID); err != nil {
 		t.Fatalf("single key with lease: err = %v", err)
+	}
+
+	// last 10 seconds of lease: next instance may lease the key before signed tx is sent
+	until := time.Now().UTC().Add(5 * time.Second)
+	repo.findKey(key.ID).LeasedUntil = &until
+	if err := sign(&lease.ID); !errors.Is(err, ErrLeaseExpired) {
+		t.Fatalf("ending lease: err = %v", err)
 	}
 
 	if err := srv.ForceReleaseLease(ctx, key.ID); err != nil {
 		t.Fatal(err)
 	}
-	if err := sign(nil); err != nil {
+	if err := sign(&lease.ID); !errors.Is(err, ErrLeaseExpired) {
 		t.Fatalf("after force release: err = %v", err)
+	}
+}
+
+func TestLeaseRotatingKey(t *testing.T) {
+	srv := newTestService(t, &repoStub{})
+	ctx := context.Background()
+
+	role := createTestRole(t, srv, constants.NetworkEthereum, constants.RoleKindPool)
+	old, _ := srv.CreateKey(ctx, CreateKeyParams{RoleID: role.ID})
+	replacement, err := srv.RotateKey(ctx, old.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := srv.ActivateKey(ctx, replacement.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	// rotating key is not leased, but must sign its funds out
+	params := AcquireLeaseParams{Service: "exchange", Purpose: role.Purpose, Label: role.Label, Network: role.Network}
+	if lease, err := srv.AcquireLease(ctx, params); err != nil || lease.Key.ID != replacement.ID {
+		t.Fatalf("lease = %+v, err = %v", lease, err)
+	}
+	noop := func(*WalletKey) error { return nil }
+	if err := srv.UseSigningKey(ctx, "exchange", old.ID, constants.NetworkEthereum, nil, noop, func(*WalletKey, []byte) error { return nil }); err != nil {
+		t.Fatalf("rotating key without lease: err = %v", err)
 	}
 }

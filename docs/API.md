@@ -1,6 +1,6 @@
 # Wallet Service: что уже сделано в API
 
-Обновлено: 26.10.2026. Документ обновляется после каждого изменения ручек.
+Обновлено: 27.10.2026. Документ обновляется после каждого изменения ручек.
 
 ## Общее
 
@@ -117,7 +117,7 @@ curl -s -X POST http://localhost:8080/api/v1/roles/deposit/deposit-key \
 {"network": "ethereum", "raw_tx": "0x…", "lease_id": "…"}
 ```
 
-`lease_id` обязателен для ключей pool-роли; для single/deposit — только если ключ сейчас арендован.
+`lease_id` обязателен для `active`-ключей single- и pool-роли. Без аренды подписывают deposit-ключи и ключи `rotating`/`pending` (их нельзя арендовать), но если такой ключ ещё под арендой — только с её `lease_id`.
 
 | Сеть | `raw_tx` | `signed_tx` в ответе | `tx_hash` |
 |---|---|---|---|
@@ -129,7 +129,7 @@ curl -s -X POST http://localhost:8080/api/v1/roles/deposit/deposit-key \
   - ETH/Arbitrum: chainID EIP-1559 tx совпадает с `ETH_CHAIN_ID` / `ARBITRUM_CHAIN_ID`, создание контракта запрещено;
   - TRON: ровно один контракт, `expiration` не прошёл, только `TransferContract` и `TriggerSmartContract` (остальные типы, в т.ч. `AccountPermissionUpdateContract`, запрещены), `call_token_value` (TRC10) запрещён;
 - ключ принадлежит сервису (иначе 404), сеть ключа совпадает с `network`, статус `active`, `pending` или `rotating`;
-- аренда: pool-ключ — только с живой арендой (`lease_id`); арендованный ключ любой роли — только с её `lease_id`;
+- аренда: `active`-ключ single/pool — только с живой арендой (`lease_id`), которой осталось больше 10 секунд; арендованный ключ любой роли — только с её `lease_id`;
 - TRON: `owner_address` tx = адрес ключа;
 - операция разрешена политикой роли ([POLICY.md](POLICY.md)).
 
@@ -137,13 +137,15 @@ curl -s -X POST http://localhost:8080/api/v1/roles/deposit/deposit-key \
 {"success":true,"data":{"signed_tx":"0x…","tx_hash":"0x…"}}
 ```
 
-Ошибки: `INVALID_TRANSACTION` (400, в т.ч. чужой `owner_address`), `UNSUPPORTED_NETWORK` (400), `INVALID_PARAMS` (400, сеть ключа другая), `VALIDATION_FAILED` (400), `POLICY_VIOLATION` (403), `KEY_NOT_FOUND` (404), `KEY_NOT_ACTIVE` (409), `LEASE_REQUIRED` (409, pool-ключ без аренды), `LEASE_EXPIRED` (409, аренда истекла или чужая), `KEY_LEASED` (409, ключ арендован другим экземпляром), `UNAUTHORIZED` (401), `INTERNAL_ERROR` (500, в т.ч. не удалось записать аудит).
+Ошибки: `INVALID_TRANSACTION` (400, в т.ч. чужой `owner_address`), `UNSUPPORTED_NETWORK` (400), `INVALID_PARAMS` (400, сеть ключа другая), `VALIDATION_FAILED` (400), `POLICY_VIOLATION` (403), `KEY_NOT_FOUND` (404), `KEY_NOT_ACTIVE` (409), `LEASE_REQUIRED` (409, `active`-ключ single/pool без аренды), `LEASE_EXPIRED` (409, аренда истекла, истекает в ближайшие 10 секунд или чужая), `KEY_LEASED` (409, ключ арендован другим экземпляром), `UNAUTHORIZED` (401), `INTERNAL_ERROR` (500, в т.ч. не удалось записать аудит).
 
 Каждый запрос, дошедший до подписи (после авторизации и разбора hex), пишется в таблицу `signing_audit`: `service_client_id`, `key_id` как в запросе, `network`, `raw_tx`, `tx_hash` для подписанных, `error_code` для отклонённых. Если запись не удалась, подпись не возвращается (500); отказ при недоступном аудите возвращается со своим кодом, ошибка аудита пишется в лог.
 
 ### Аренда ключей (lease)
 
 Ключ арендуется одним экземпляром сервиса на время «выбрал → собрал tx → подписал → отправил». Пока аренда жива, подписать ключом можно только с её `lease_id`. Упавший экземпляр держит ключ не дольше TTL.
+
+Последние 10 секунд аренды подпись не выдаётся (`LEASE_EXPIRED`): у экземпляра есть минимум 10 секунд отправить уже подписанную tx до того, как ключ возьмёт другой экземпляр и прочитает тот же nonce. Аренду нужно продлевать заранее.
 
 #### `POST /api/v1/roles/{purpose}/lease` — арендовать свободный ключ
 
@@ -156,7 +158,7 @@ curl -s -X POST http://localhost:8080/api/v1/roles/deposit/deposit-key \
 | `network` | обязательно |
 | `label` | роль, по умолчанию `''` |
 | `owner` | кто держит, для отладки (имя пода), до 128 символов |
-| `ttl_seconds` | по умолчанию 60, максимум 600 |
+| `ttl_seconds` | по умолчанию 60, от 30 до 600 |
 | `exclude` | ключи, которые не выдавать (например, без газа) |
 
 Выдаётся `active`-ключ без живой аренды, первым — дольше всех не использованный. Для `single` и `pool`; deposit — `INVALID_PARAMS`.
@@ -169,7 +171,7 @@ curl -s -X POST http://localhost:8080/api/v1/roles/deposit/deposit-key \
 
 #### `POST /api/v1/leases/{lease_id}/extend` — продлить
 
-Тело необязательное: `{"ttl_seconds": 60}`. Ответ: `{"expires_at": "…"}`. Ошибка: `LEASE_EXPIRED` (409) — аренда истекла, освобождена или чужая.
+Тело необязательное: `{"ttl_seconds": 60}` (от 30 до 600). Ответ: `{"expires_at": "…"}`. Ошибка: `LEASE_EXPIRED` (409) — аренда истекла, освобождена или чужая.
 
 #### `DELETE /api/v1/leases/{lease_id}` — освободить
 
@@ -324,7 +326,7 @@ wallet-admin release-lease -id <key_id>
 
 ### `cmd/gas-station-send` — отправка ETH с газового кошелька
 
-Делает то же, что будет делать сервис: берёт текущий ключ газового кошелька (`GET /roles/gas_station/key`), собирает неподписанную EIP-1559 tx по данным RPC (chainId, pending nonce, комиссии), подписывает через `sign-transaction` и, с `-send`, отправляет в сеть.
+Делает то же, что будет делать сервис: арендует ключ газового кошелька (`POST /roles/gas_station/lease`), собирает неподписанную EIP-1559 tx по данным RPC (chainId, pending nonce, комиссии), подписывает через `sign-transaction` с `lease_id`, с `-send` отправляет в сеть и освобождает аренду. Если утилита упала, аренда снимается сама через 60 секунд; пока она жива, остальные подписи газовым кошельком получают `KEY_LEASED`.
 
 ```bash
 WALLET_SERVICE_KEY=... ETH_RPC_URL=https://... go run ./cmd/gas-station-send -to 0x... -amount 0.001 [-purpose gas_station] [-label atoken] [-send]
@@ -334,7 +336,7 @@ WALLET_SERVICE_KEY=... ETH_RPC_URL=https://... go run ./cmd/gas-station-send -to
 
 ### `cmd/tron-gas-station-send` — отправка TRX с газового кошелька
 
-То же для Tron: берёт текущий ключ (`GET /roles/gas_station/key?network=tron`), собирает перевод TRX через ноду (`/wallet/createtransaction`), подписывает `raw_data_hex` через `sign-transaction`, сверяет `tx_hash` с `txID` ноды и, с `-send`, отправляет через `/wallet/broadcasthex`.
+То же для Tron: арендует ключ (`POST /roles/gas_station/lease`, `network: tron`), собирает перевод TRX через ноду (`/wallet/createtransaction`), подписывает `raw_data_hex` через `sign-transaction`, сверяет `tx_hash` с `txID` ноды и, с `-send`, отправляет через `/wallet/broadcasthex`.
 
 ```bash
 WALLET_SERVICE_KEY=... TRON_NODE_URL=https://nile.trongrid.io go run ./cmd/tron-gas-station-send -to T... -amount 1 [-purpose gas_station] [-label atoken] [-node-key <TronGrid key>] [-send]

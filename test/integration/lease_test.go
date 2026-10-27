@@ -110,7 +110,15 @@ func TestLeaseSingleKey(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if status, res, _ := e.sign(gas.ID, "ethereum", raw); status != http.StatusOK {
+	sign := func(leaseID *uuid.UUID) (int, apiResponse) {
+		body := map[string]any{"network": "ethereum", "raw_tx": "0x" + common.Bytes2Hex(raw)}
+		if leaseID != nil {
+			body["lease_id"] = leaseID.String()
+		}
+		return e.call(http.MethodPost, "/api/v1/keys/"+gas.ID.String()+"/sign-transaction", e.apiKey, body, nil)
+	}
+
+	if status, res := sign(nil); status != http.StatusConflict || res.Error.Code != "LEASE_REQUIRED" {
 		t.Fatalf("single key without lease: status = %d, error = %+v", status, res.Error)
 	}
 
@@ -119,7 +127,11 @@ func TestLeaseSingleKey(t *testing.T) {
 		t.Fatalf("lease single: status = %d, error = %+v", status, res.Error)
 	}
 
-	if status, res, _ := e.sign(gas.ID, "ethereum", raw); status != http.StatusConflict || res.Error.Code != "KEY_LEASED" {
-		t.Fatalf("leased single key without lease: status = %d, error = %+v", status, res.Error)
+	if status, res := sign(&lease.LeaseID); status != http.StatusOK {
+		t.Fatalf("single key with lease: status = %d, error = %+v", status, res.Error)
+	}
+
+	if status, res := e.call(http.MethodPost, "/api/v1/roles/gas_station/lease", e.apiKey, map[string]any{"network": "ethereum", "ttl_seconds": 10}, nil); status != http.StatusBadRequest {
+		t.Fatalf("ttl shorter than signing margin: status = %d, error = %+v", status, res.Error)
 	}
 }

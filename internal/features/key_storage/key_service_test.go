@@ -204,8 +204,9 @@ func newSigningTestKey(t *testing.T, network constants.Network, status constants
 	t.Helper()
 	repo := &repoStub{}
 	srv := newTestService(t, repo)
-	role := createTestRole(t, srv, network, constants.RoleKindSingle)
-	key, err := srv.CreateKey(context.Background(), CreateKeyParams{RoleID: role.ID})
+	// deposit key signs without lease
+	role := createTestRole(t, srv, network, constants.RoleKindDeposit)
+	key, err := srv.CreateKey(context.Background(), CreateKeyParams{RoleID: role.ID, ExternalRef: ptr("order-1")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -419,7 +420,11 @@ func TestRotateKeyLifecycle(t *testing.T) {
 		t.Fatalf("pending key must sign: err = %v", err)
 	}
 
-	err = srv.UseSigningKey(ctx, "exchange", old.ID, constants.NetworkEthereum, nil, func(key *WalletKey) error {
+	lease, err := srv.AcquireLease(ctx, AcquireLeaseParams{Service: "exchange", Purpose: role.Purpose, Label: role.Label, Network: role.Network})
+	if err != nil || lease.Key.ID != old.ID {
+		t.Fatalf("lease = %+v, err = %v", lease, err)
+	}
+	err = srv.UseSigningKey(ctx, "exchange", old.ID, constants.NetworkEthereum, &lease.ID, func(key *WalletKey) error {
 		if key.ReplacementAddress == nil || *key.ReplacementAddress != replacement.Address {
 			t.Fatalf("replacement address = %v", key.ReplacementAddress)
 		}
@@ -438,8 +443,8 @@ func TestRotateKeyLifecycle(t *testing.T) {
 	if key, _ := srv.GetRoleKey(ctx, params); key.ID != replacement.ID {
 		t.Fatalf("active after activation = %s", key.ID)
 	}
-	if err := srv.UseSigningKey(ctx, "exchange", old.ID, constants.NetworkEthereum, nil, noop, func(*WalletKey, []byte) error { return nil }); err != nil {
-		t.Fatalf("rotating key must sign: err = %v", err)
+	if err := srv.UseSigningKey(ctx, "exchange", old.ID, constants.NetworkEthereum, &lease.ID, noop, func(*WalletKey, []byte) error { return nil }); err != nil {
+		t.Fatalf("rotating key must sign under its lease: err = %v", err)
 	}
 
 	if _, err := srv.RevokeKey(ctx, old.ID); err != nil || old.Status != constants.KeyStatusRevoked || old.RevokedAt == nil {

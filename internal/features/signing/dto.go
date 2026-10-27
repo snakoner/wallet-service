@@ -5,7 +5,7 @@ import "github.com/google/uuid"
 type SignTransactionRequest struct {
 	Network string     `json:"network" binding:"required,network"`
 	RawTx   string     `json:"raw_tx" binding:"required"` // hex of unsigned tx: ethereum - types.Transaction.MarshalBinary, tron - raw_data_hex
-	LeaseID *uuid.UUID `json:"lease_id"`                  // required for pool keys
+	LeaseID *uuid.UUID `json:"lease_id"`                  // required for active single and pool keys
 }
 
 type SignTransactionResponse struct {

@@ -10,12 +10,12 @@ type AcquireLeaseRequest struct {
 	Network    string      `json:"network" binding:"required,network"`
 	Label      string      `json:"label"`
 	Owner      string      `json:"owner" binding:"max=128"`
-	TTLSeconds int         `json:"ttl_seconds" binding:"omitempty,min=1"`
+	TTLSeconds int         `json:"ttl_seconds" binding:"omitempty,min=30"`
 	Exclude    []uuid.UUID `json:"exclude"`
 }
 
 type ExtendLeaseRequest struct {
-	TTLSeconds int `json:"ttl_seconds" binding:"omitempty,min=1"`
+	TTLSeconds int `json:"ttl_seconds" binding:"omitempty,min=30"`
 }
 
 type LeaseResponse struct {

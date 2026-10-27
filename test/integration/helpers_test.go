@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"math/big"
 	"net/http"
@@ -20,6 +21,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	aes256 "github.com/w3-developers/go-aes256"
 
@@ -44,6 +46,7 @@ type env struct {
 	http    *http.Client
 	service string
 	apiKey  string
+	leases  map[uuid.UUID]uuid.UUID // key id -> lease id taken by sign
 	ctx     context.Context
 	tb      testing.TB
 }
@@ -85,6 +88,7 @@ func newEnv(t *testing.T) *env {
 		eth:     eth,
 		http:    &http.Client{Timeout: 15 * time.Second},
 		service: "it-" + uuid.NewString()[:8],
+		leases:  map[uuid.UUID]uuid.UUID{},
 		ctx:     ctx,
 		tb:      t,
 	}
@@ -179,10 +183,58 @@ type signed struct {
 
 func (e *env) sign(keyID uuid.UUID, network string, rawTx []byte) (int, apiResponse, signed) {
 	e.tb.Helper()
+	body := map[string]string{"network": network, "raw_tx": "0x" + hex.EncodeToString(rawTx)}
+	if leaseID := e.lease(keyID); leaseID != nil {
+		body["lease_id"] = leaseID.String()
+	}
+
 	var out signed
-	status, res := e.call(http.MethodPost, "/api/v1/keys/"+keyID.String()+"/sign-transaction", e.apiKey,
-		map[string]string{"network": network, "raw_tx": "0x" + hex.EncodeToString(rawTx)}, &out)
+	status, res := e.call(http.MethodPost, "/api/v1/keys/"+keyID.String()+"/sign-transaction", e.apiKey, body, &out)
 	return status, res, out
+}
+
+// lease takes lease of own active single key once per test: such key signs only with lease.
+func (e *env) lease(keyID uuid.UUID) *uuid.UUID {
+	e.tb.Helper()
+	if leaseID, ok := e.leases[keyID]; ok {
+		return &leaseID
+	}
+
+	var (
+		purpose, label string
+		network        constants.Network
+		kind           constants.RoleKind
+		status         constants.KeyStatus
+	)
+	err := e.pool.QueryRow(e.ctx, `
+		SELECT r.purpose, r.label, r.network, r.kind, k.status
+		FROM wallet_keys k
+		JOIN wallet_roles r ON r.id = k.role_id
+		WHERE k.id = $1 AND r.service = $2`,
+		keyID, e.service,
+	).Scan(&purpose, &label, &network, &kind, &status)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		e.tb.Fatal(err)
+	}
+	if kind != constants.RoleKindSingle || status != constants.KeyStatusActive {
+		return nil
+	}
+
+	var lease struct {
+		LeaseID uuid.UUID `json:"lease_id"`
+		Key     struct {
+			ID uuid.UUID `json:"id"`
+		} `json:"key"`
+	}
+	if code, res := e.call(http.MethodPost, "/api/v1/roles/"+purpose+"/lease", e.apiKey, map[string]string{"network": network.String(), "label": label}, &lease); code != http.StatusOK || lease.Key.ID != keyID {
+		e.tb.Fatalf("lease %s: status = %d, lease = %+v, error = %+v", keyID, code, lease, res.Error)
+	}
+
+	e.leases[keyID] = lease.LeaseID
+	return &lease.LeaseID
 }
 
 func (e *env) fund(address string, wei *big.Int) {

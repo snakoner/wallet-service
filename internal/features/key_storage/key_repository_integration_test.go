@@ -78,7 +78,7 @@ func TestIntegrationKeyUniqueConstraints(t *testing.T) {
 }
 
 func TestIntegrationUseSigningKey(t *testing.T) {
-	srv, _ := newIntegrationService(t)
+	srv, pool := newIntegrationService(t)
 	ctx := context.Background()
 	service := uniqueService()
 
@@ -87,8 +87,12 @@ func TestIntegrationUseSigningKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	lease, err := srv.AcquireLease(ctx, AcquireLeaseParams{Service: service, Purpose: role.Purpose, Network: role.Network})
+	if err != nil {
+		t.Fatal(err)
+	}
 
-	err = srv.UseSigningKey(ctx, service, key.ID, constants.NetworkEthereum, nil,
+	err = srv.UseSigningKey(ctx, service, key.ID, constants.NetworkEthereum, &lease.ID,
 		func(got *WalletKey) error {
 			if got.Role.Service != service || got.Role.Kind != constants.RoleKindSingle || len(got.Role.Policy) == 0 {
 				t.Fatalf("role loaded from db = %+v", got.Role)
@@ -110,6 +114,20 @@ func TestIntegrationUseSigningKey(t *testing.T) {
 	noop := func(*WalletKey) error { return nil }
 	if err := srv.UseSigningKey(ctx, uniqueService(), key.ID, constants.NetworkEthereum, nil, noop, func(*WalletKey, []byte) error { return nil }); !errors.Is(err, ErrKeyNotFound) {
 		t.Fatalf("other service: err = %v", err)
+	}
+	if err := srv.UseSigningKey(ctx, service, key.ID, constants.NetworkEthereum, nil, noop, func(*WalletKey, []byte) error { return nil }); !errors.Is(err, ErrLeaseRequired) {
+		t.Fatalf("without lease: err = %v", err)
+	}
+
+	// last 10 seconds of lease are not used for signing
+	if _, err := pool.Exec(ctx, `UPDATE wallet_keys SET leased_until = (now() AT TIME ZONE 'UTC') + interval '5 seconds' WHERE id = $1`, key.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := srv.UseSigningKey(ctx, service, key.ID, constants.NetworkEthereum, &lease.ID, noop, func(*WalletKey, []byte) error { return nil }); !errors.Is(err, ErrLeaseExpired) {
+		t.Fatalf("ending lease: err = %v", err)
+	}
+	if err := srv.UseSigningKey(ctx, service, key.ID, constants.NetworkEthereum, nil, noop, func(*WalletKey, []byte) error { return nil }); !errors.Is(err, ErrLeaseRequired) {
+		t.Fatalf("ending lease, no lease id: err = %v", err)
 	}
 }
 

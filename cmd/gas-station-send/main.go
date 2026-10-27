@@ -91,6 +91,10 @@ func (c *walletClient) do(ctx context.Context, method, path string, body, out an
 		return fmt.Errorf("%s %s: status %d", method, path, resp.StatusCode)
 	}
 
+	if out == nil {
+		return nil
+	}
+
 	return json.Unmarshal(res.Data, out)
 }
 
@@ -122,14 +126,25 @@ func main() {
 
 	wallet := &walletClient{baseURL: strings.TrimRight(*apiURL, "/"), serviceKey: *serviceKey, http: &http.Client{Timeout: 15 * time.Second}}
 
-	var key struct {
-		ID      string `json:"id"`
-		Address string `json:"address"`
+	// active key signs only with lease: other instances do not sign with it until release, nonce is not reused
+	var lease struct {
+		LeaseID string `json:"lease_id"`
+		Key     struct {
+			ID      string `json:"id"`
+			Address string `json:"address"`
+		} `json:"key"`
 	}
-	query := url.Values{"network": {"ethereum"}, "label": {*label}}
-	if err := wallet.do(ctx, http.MethodGet, "/api/v1/roles/"+url.PathEscape(*purpose)+"/key?"+query.Encode(), nil, &key); err != nil {
-		log.Fatalf("get gas station key: %v", err)
+	leaseReq := map[string]string{"network": "ethereum", "label": *label, "owner": "gas-station-send"}
+	if err := wallet.do(ctx, http.MethodPost, "/api/v1/roles/"+url.PathEscape(*purpose)+"/lease", leaseReq, &lease); err != nil {
+		log.Fatalf("lease gas station key: %v", err)
 	}
+	// on fatal exit lease is freed by ttl
+	defer func() {
+		if err := wallet.do(ctx, http.MethodDelete, "/api/v1/leases/"+lease.LeaseID, nil, nil); err != nil {
+			log.Printf("release lease: %v", err)
+		}
+	}()
+	key := lease.Key
 	fmt.Printf("gas station:  %s (key %s)\n", key.Address, key.ID)
 
 	eth, err := ethclient.DialContext(ctx, *rpcURL)
@@ -187,7 +202,7 @@ func main() {
 		SignedTx string `json:"signed_tx"`
 		TxHash   string `json:"tx_hash"`
 	}
-	signReq := map[string]string{"network": "ethereum", "raw_tx": "0x" + hex.EncodeToString(rawTx)}
+	signReq := map[string]string{"network": "ethereum", "lease_id": lease.LeaseID, "raw_tx": "0x" + hex.EncodeToString(rawTx)}
 	if err := wallet.do(ctx, http.MethodPost, "/api/v1/keys/"+key.ID+"/sign-transaction", signReq, &signed); err != nil {
 		log.Fatalf("sign tx: %v", err)
 	}

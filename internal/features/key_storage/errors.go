@@ -16,6 +16,6 @@ var (
 	ErrRotationInProgress = apperror.Conflict("ROTATION_IN_PROGRESS", "key already has pending replacement")
 	ErrNoFreeKey          = apperror.Conflict("NO_FREE_KEY", "no free key in role, retry later")
 	ErrLeaseExpired       = apperror.Conflict("LEASE_EXPIRED", "lease expired or belongs to other instance")
-	ErrLeaseRequired      = apperror.Conflict("LEASE_REQUIRED", "pool key requires lease")
+	ErrLeaseRequired      = apperror.Conflict("LEASE_REQUIRED", "active key requires lease")
 	ErrKeyLeased          = apperror.Conflict("KEY_LEASED", "key is leased by other instance")
 )

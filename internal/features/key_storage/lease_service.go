@@ -68,14 +68,16 @@ func (s *Service) ForceReleaseLease(ctx context.Context, keyID uuid.UUID) error 
 	return nil
 }
 
-// checkLease: pool key signs only with its live lease; any key under live lease signs only with that lease.
+// checkLease: active single or pool key signs only with its live lease; any key under live lease signs only with that lease.
+// Lease is not used in its last 10 seconds: signed tx is sent before next instance leases the key and reads the same nonce.
+// Rotating and pending keys are not leased and sign without lease.
 func checkLease(key *WalletKey, leaseID *uuid.UUID) error {
 	switch {
-	case key.Role.Kind == constants.RoleKindPool && leaseID == nil:
+	case key.Role.Kind != constants.RoleKindDeposit && key.Status == constants.KeyStatusActive && leaseID == nil:
 		return ErrLeaseRequired
 	case key.LeaseActive && leaseID == nil:
 		return ErrKeyLeased
-	case leaseID != nil && (!key.LeaseActive || key.LeaseID == nil || *key.LeaseID != *leaseID):
+	case leaseID != nil && (!key.LeaseActive || key.LeaseEnding || key.LeaseID == nil || *key.LeaseID != *leaseID):
 		return ErrLeaseExpired
 	}
 

@@ -40,7 +40,7 @@ definitions:
         maxLength: 128
         type: string
       ttl_seconds:
-        minimum: 1
+        minimum: 30
         type: integer
     required:
     - network
@@ -80,7 +80,7 @@ definitions:
   key_storage.ExtendLeaseRequest:
     properties:
       ttl_seconds:
-        minimum: 1
+        minimum: 30
         type: integer
     type: object
   key_storage.ExtendLeaseResponse:
@@ -232,12 +232,13 @@ definitions:
   signing.SignTransactionRequest:
     properties:
       lease_id:
-        description: 'required for pool keys // hex of unsigned tx: ethereum - types.Transaction.MarshalBinary,
-          tron - raw_data_hex'
+        description: required for active single and pool keys
         type: string
       network:
         type: string
       raw_tx:
+        description: 'hex of unsigned tx: ethereum - types.Transaction.MarshalBinary,
+          tron - raw_data_hex'
         type: string
     required:
     - network

@@ -1530,7 +1530,7 @@ const docTemplate = `{
                 },
                 "ttl_seconds": {
                     "type": "integer",
-                    "minimum": 1
+                    "minimum": 30
                 }
             }
         },
@@ -1585,7 +1585,7 @@ const docTemplate = `{
             "properties": {
                 "ttl_seconds": {
                     "type": "integer",
-                    "minimum": 1
+                    "minimum": 30
                 }
             }
         },
@@ -1817,13 +1817,14 @@ const docTemplate = `{
             ],
             "properties": {
                 "lease_id": {
-                    "description": "required for pool keys // hex of unsigned tx: ethereum - types.Transaction.MarshalBinary, tron - raw_data_hex",
+                    "description": "required for active single and pool keys",
                     "type": "string"
                 },
                 "network": {
                     "type": "string"
                 },
                 "raw_tx": {
+                    "description": "hex of unsigned tx: ethereum - types.Transaction.MarshalBinary, tron - raw_data_hex",
                     "type": "string"
                 }
             }

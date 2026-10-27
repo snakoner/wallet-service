@@ -188,6 +188,7 @@ func (r *repoStub) GetKey(_ context.Context, _ db.DBTX, id uuid.UUID, service st
 		if key.ID == id && key.Role.Service == service {
 			key.ReplacementAddress = nil
 			key.LeaseActive = key.LeaseID != nil && key.LeasedUntil != nil && key.LeasedUntil.After(time.Now().UTC())
+			key.LeaseEnding = key.LeaseID != nil && key.LeasedUntil != nil && !key.LeasedUntil.After(time.Now().UTC().Add(10*time.Second))
 			if key.ReplacedBy != nil {
 				key.ReplacementAddress = &r.findKey(*key.ReplacedBy).Address
 			}

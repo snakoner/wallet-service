@@ -38,6 +38,7 @@ type WalletKey struct {
 	LeaseOwner         *string
 	LeasedUntil        *time.Time
 	LeaseActive        bool // lease exists and not expired, loaded only for signing
+	LeaseEnding        bool // lease expires within 10 seconds: too late to sign with it, loaded only for signing
 	CreatedAt          time.Time
 	UpdatedAt          time.Time
 	RotatedAt          *time.Time
