@@ -18,4 +18,6 @@ TEST_ENV = WALLET_TEST_DATABASE_URL="postgres://test:test@localhost:15433/wallet
 test-integration:
 	docker compose -f docker-compose.test.yml up -d --build --wait
 	$(TEST_ENV) go test -tags=integration -count=1 ./... ; status=$$?; \
-	docker compose -f docker-compose.test.yml down -v; exit $$status
+	docker compose -f docker-compose.test.yml down -v; \
+	echo; if [ $$status -eq 0 ]; then echo "INTEGRATION TESTS PASSED"; else echo "INTEGRATION TESTS FAILED"; fi; \
+	exit $$status
