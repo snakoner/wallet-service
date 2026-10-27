@@ -70,7 +70,7 @@ Keys:
       -network <network>      ethereum | tron | arbitrum
       -status <status>        active | rotating | pending | disabled | revoked
       -external-ref <ref>
-      -limit <n>              default 100, max 1000
+      -limit <n>              default 100, 1..1000
 
   rotate-key              start rotation: create pending replacement of active key, print its address
       -id <key_id>            old key keeps working and may send its funds to replacement
@@ -383,12 +383,16 @@ func listKeys(args []string) {
 	networkName := fs.String("network", "", "ethereum, tron, arbitrum")
 	statusName := fs.String("status", "", "active, rotating, pending, disabled, revoked")
 	externalRef := fs.String("external-ref", "", "order id of deposit key")
-	limit := fs.Int("limit", 100, "max keys, up to 1000")
+	limit := fs.Int("limit", 100, "max keys, 1..1000")
 	_ = fs.Parse(args)
 
 	ctx := context.Background()
 	a := newAdmin(ctx)
 	defer a.pool.Close()
+
+	if *limit < 1 || *limit > 1000 {
+		a.log.Fatal().Int("limit", *limit).Msg("limit must be 1..1000")
+	}
 
 	filter := keystorage.ListKeysFilter{Limit: *limit}
 	fs.Visit(func(f *flag.Flag) {

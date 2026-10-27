@@ -198,14 +198,14 @@ func TestIntegrationListKeys(t *testing.T) {
 		filter ListKeysFilter
 		want   int
 	}{
-		{"service", ListKeysFilter{Service: &service}, 3},
-		{"empty label", ListKeysFilter{Service: &service, Label: &empty}, 1},
-		{"label", ListKeysFilter{Service: &service, Label: &atoken}, 2},
-		{"network", ListKeysFilter{Service: &service, Network: &tron}, 2},
-		{"status", ListKeysFilter{Service: &service, Status: &revoked}, 1},
+		{"service", ListKeysFilter{Service: &service, Limit: 100}, 3},
+		{"empty label", ListKeysFilter{Service: &service, Label: &empty, Limit: 100}, 1},
+		{"label", ListKeysFilter{Service: &service, Label: &atoken, Limit: 100}, 2},
+		{"network", ListKeysFilter{Service: &service, Network: &tron, Limit: 100}, 2},
+		{"status", ListKeysFilter{Service: &service, Status: &revoked, Limit: 100}, 1},
 		{"limit", ListKeysFilter{Service: &service, Limit: 1}, 1},
 		{"offset", ListKeysFilter{Service: &service, Offset: 2, Limit: 100}, 1},
-		{"offset past end", ListKeysFilter{Service: &service, Offset: 3}, 0},
+		{"offset past end", ListKeysFilter{Service: &service, Offset: 3, Limit: 100}, 0},
 	} {
 		keys, err := srv.ListKeys(ctx, tc.filter)
 		if err != nil || len(keys) != tc.want {

@@ -355,6 +355,8 @@ wallet-admin rotate-key | activate-key | revoke-key | disable-key | enable-key -
 wallet-admin release-lease -id <key_id>
 ```
 
+`list-keys -limit` — от 1 до 1000, иначе команда завершается с ошибкой.
+
 `import-key` — перенос существующих ключей из env сервисов. В production admin API нет, там всё делается через CLI.
 
 ## Инструменты

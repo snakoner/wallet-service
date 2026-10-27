@@ -36,17 +36,7 @@ func (s *Service) IsServiceAddress(ctx context.Context, service string, network 
 	return s.repo.IsServiceAddress(ctx, s.txm.GetPool(), service, network, address, purpose)
 }
 
-const (
-	defaultListKeysLimit = 100
-	maxListKeysLimit     = 1000
-)
-
 func (s *Service) ListKeys(ctx context.Context, filter ListKeysFilter) ([]WalletKey, error) {
-	if filter.Limit <= 0 {
-		filter.Limit = defaultListKeysLimit
-	}
-	filter.Limit = min(filter.Limit, maxListKeysLimit)
-
 	return s.repo.ListKeys(ctx, s.txm.GetPool(), filter)
 }
 

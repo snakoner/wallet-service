@@ -374,13 +374,13 @@ func TestListKeys(t *testing.T) {
 		}
 	}
 
-	if keys, err := srv.ListKeys(ctx, ListKeysFilter{}); err != nil || len(keys) != 3 || repo.listFilter.Limit != 100 {
-		t.Fatalf("all: keys = %d, limit = %d, err = %v", len(keys), repo.listFilter.Limit, err)
+	if keys, err := srv.ListKeys(ctx, ListKeysFilter{Offset: 5, Limit: 10}); err != nil || len(keys) != 3 || repo.listFilter.Offset != 5 || repo.listFilter.Limit != 10 {
+		t.Fatalf("all: keys = %d, filter = %+v, err = %v", len(keys), repo.listFilter, err)
 	}
 
 	tron := constants.NetworkTron
-	if keys, _ := srv.ListKeys(ctx, ListKeysFilter{Network: &tron, Limit: 5000}); len(keys) != 2 || repo.listFilter.Limit != 1000 {
-		t.Fatalf("tron: keys = %d, limit = %d", len(keys), repo.listFilter.Limit)
+	if keys, _ := srv.ListKeys(ctx, ListKeysFilter{Network: &tron}); len(keys) != 2 {
+		t.Fatalf("tron: keys = %d", len(keys))
 	}
 
 	label := "single"
