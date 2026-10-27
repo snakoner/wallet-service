@@ -14,15 +14,21 @@ var RoleKindStrings = map[RoleKind]string{
 	RoleKindDeposit: "deposit",
 }
 
+var RoleKinds = make(map[string]RoleKind, len(RoleKindStrings))
+
+func init() {
+	for kind, name := range RoleKindStrings {
+		RoleKinds[name] = kind
+	}
+}
+
 func (k RoleKind) String() string {
 	return RoleKindStrings[k]
 }
 
 func ParseRoleKind(s string) (RoleKind, bool) {
-	for kind, name := range RoleKindStrings {
-		if name == s {
-			return kind, true
-		}
+	if kind, ok := RoleKinds[s]; ok {
+		return kind, true
 	}
 
 	return RoleKindSingle, false

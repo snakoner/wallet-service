@@ -18,15 +18,21 @@ var KeyStatusStrings = map[KeyStatus]string{
 	KeyStatusRevoked:  "revoked",
 }
 
+var KeyStatuses = make(map[string]KeyStatus, len(KeyStatusStrings))
+
+func init() {
+	for status, name := range KeyStatusStrings {
+		KeyStatuses[name] = status
+	}
+}
+
 func (s KeyStatus) String() string {
 	return KeyStatusStrings[s]
 }
 
 func ParseKeyStatus(s string) (KeyStatus, bool) {
-	for status, name := range KeyStatusStrings {
-		if name == s {
-			return status, true
-		}
+	if status, ok := KeyStatuses[s]; ok {
+		return status, true
 	}
 
 	return KeyStatusActive, false
