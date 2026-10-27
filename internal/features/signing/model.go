@@ -7,11 +7,12 @@ import (
 )
 
 type SignTransactionParams struct {
-	Service string
-	KeyID   uuid.UUID
-	Network constants.Network
-	RawTx   []byte
-	LeaseID *uuid.UUID
+	Service         string
+	ServiceClientID uuid.UUID
+	KeyID           uuid.UUID
+	Network         constants.Network
+	RawTx           []byte
+	LeaseID         *uuid.UUID
 }
 
 type SignedTransaction struct {

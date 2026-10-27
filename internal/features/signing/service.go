@@ -8,7 +8,9 @@ import (
 	"github.com/google/uuid"
 
 	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/constants"
+	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/features/audit"
 	keystorage "gitlab.tve-development.com/backend/gtoken/wallet-service/internal/features/key_storage"
+	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/infra/apperror"
 	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/infra/logger"
 	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/policy"
 )
@@ -26,6 +28,10 @@ type keyProvider interface {
 	IsServiceAddress(ctx context.Context, service string, network constants.Network, address, purpose string) (bool, error)
 }
 
+type auditor interface {
+	RecordSigning(ctx context.Context, record *audit.SigningRecord) error
+}
+
 type TxSigner interface {
 	DecodeTx(rawTx []byte) (*policy.Operation, error)
 	SignTx(rawTx []byte, privateKey []byte) ([]byte, string, error)
@@ -34,18 +40,52 @@ type TxSigner interface {
 type Service struct {
 	log     *logger.Logger
 	keys    keyProvider
+	audit   auditor
 	signers map[constants.Network]TxSigner
 }
 
-func NewService(log *logger.Logger, keys keyProvider, signers map[constants.Network]TxSigner) *Service {
+func NewService(log *logger.Logger, keys keyProvider, audit auditor, signers map[constants.Network]TxSigner) *Service {
 	return &Service{
 		log:     log,
 		keys:    keys,
+		audit:   audit,
 		signers: signers,
 	}
 }
 
+// SignTransaction records every attempt; signature without audit record is not returned.
 func (s *Service) SignTransaction(ctx context.Context, params SignTransactionParams) (*SignedTransaction, error) {
+	signed, err := s.signTransaction(ctx, params)
+
+	record := &audit.SigningRecord{
+		ServiceClientID: params.ServiceClientID,
+		KeyID:           params.KeyID,
+		Network:         params.Network,
+		RawTx:           params.RawTx,
+	}
+	if err == nil {
+		record.TxHash = &signed.TxHash
+	} else {
+		code := apperror.CodeInternal
+		if ae := apperror.FromError(err); ae != nil {
+			code = ae.Code
+		}
+		record.ErrorCode = &code
+	}
+
+	if auditErr := s.audit.RecordSigning(ctx, record); auditErr != nil {
+		if err != nil {
+			s.log.Error().Err(auditErr).Str("key_id", params.KeyID.String()).Msg("record signing audit")
+			return nil, err
+		}
+
+		return nil, fmt.Errorf("record signing audit: %w", auditErr)
+	}
+
+	return signed, err
+}
+
+func (s *Service) signTransaction(ctx context.Context, params SignTransactionParams) (*SignedTransaction, error) {
 	signer, ok := s.signers[params.Network]
 	if !ok {
 		return nil, keystorage.ErrUnsupportedNetwork

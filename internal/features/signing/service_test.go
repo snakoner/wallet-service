@@ -14,7 +14,9 @@ import (
 	"github.com/google/uuid"
 
 	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/constants"
+	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/features/audit"
 	keystorage "gitlab.tve-development.com/backend/gtoken/wallet-service/internal/features/key_storage"
+	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/infra/apperror"
 	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/infra/ethereum"
 	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/infra/logger"
 	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/policy"
@@ -80,8 +82,22 @@ func newKeyProvider(t *testing.T) *keyProviderStub {
 	}
 }
 
+type auditStub struct {
+	records []*audit.SigningRecord
+	err     error
+}
+
+func (a *auditStub) RecordSigning(_ context.Context, record *audit.SigningRecord) error {
+	a.records = append(a.records, record)
+	return a.err
+}
+
 func newTestService(keys keyProvider) *Service {
-	return NewService(logger.New(logger.Config{Level: "error"}), keys, map[constants.Network]TxSigner{
+	return newAuditedTestService(keys, &auditStub{})
+}
+
+func newAuditedTestService(keys keyProvider, audit auditor) *Service {
+	return NewService(logger.New(logger.Config{Level: "error"}), keys, audit, map[constants.Network]TxSigner{
 		constants.NetworkEthereum: ethereum.NewSigner(big.NewInt(1)),
 	})
 }
@@ -205,7 +221,7 @@ func TestSignTransactionPolicy(t *testing.T) {
 
 func TestSignTransactionOwnerMismatch(t *testing.T) {
 	keys := newKeyProvider(t)
-	srv := NewService(logger.New(logger.Config{Level: "error"}), keys, map[constants.Network]TxSigner{
+	srv := NewService(logger.New(logger.Config{Level: "error"}), keys, &auditStub{}, map[constants.Network]TxSigner{
 		constants.NetworkEthereum: stubSigner{op: policy.Operation{Op: policy.OpNative, From: "TOtherOwner", To: testTo.Hex(), Amount: big.NewInt(1)}},
 	})
 
@@ -256,5 +272,70 @@ func TestSignTransactionPassesLease(t *testing.T) {
 	}
 	if keys.leaseID == nil || *keys.leaseID != leaseID {
 		t.Fatalf("lease passed to key provider = %v", keys.leaseID)
+	}
+}
+
+func TestSignTransactionAudit(t *testing.T) {
+	native := marshalTx(t, types.NewTransaction(1, testTo, big.NewInt(10), 21000, big.NewInt(5), nil))
+	clientID := uuid.New()
+
+	cases := []struct {
+		name   string
+		policy string
+		raw    []byte
+		keyErr error
+		code   string
+	}{
+		{"signed", `{"version":1,"rules":[{"op":"native","to":["*"]}]}`, native, nil, ""},
+		{"denied by policy", `{}`, native, nil, "POLICY_VIOLATION"},
+		{"invalid tx", `{}`, []byte{1, 2, 3}, nil, "INVALID_TRANSACTION"},
+		{"key not found", `{}`, native, keystorage.ErrKeyNotFound, "KEY_NOT_FOUND"},
+		{"internal error", `{}`, native, errors.New("db down"), apperror.CodeInternal},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			keys := newKeyProvider(t)
+			keys.key.Role.Policy = json.RawMessage(tc.policy)
+			keys.err = tc.keyErr
+			log := &auditStub{}
+
+			signed, _ := newAuditedTestService(keys, log).SignTransaction(context.Background(), SignTransactionParams{
+				Service: "exchange", ServiceClientID: clientID, KeyID: keys.key.ID, Network: constants.NetworkEthereum, RawTx: tc.raw,
+			})
+
+			if len(log.records) != 1 {
+				t.Fatalf("records = %d", len(log.records))
+			}
+			r := log.records[0]
+			if r.ServiceClientID != clientID || r.KeyID != keys.key.ID || r.Network != constants.NetworkEthereum || string(r.RawTx) != string(tc.raw) {
+				t.Fatalf("record = %+v", r)
+			}
+			if tc.code == "" {
+				if r.ErrorCode != nil || r.TxHash == nil || *r.TxHash != signed.TxHash {
+					t.Fatalf("signed record: tx_hash = %v, error_code = %v", r.TxHash, r.ErrorCode)
+				}
+				return
+			}
+			if r.TxHash != nil || r.ErrorCode == nil || *r.ErrorCode != tc.code {
+				t.Fatalf("failed record: tx_hash = %v, error_code = %v, want %s", r.TxHash, r.ErrorCode, tc.code)
+			}
+		})
+	}
+}
+
+func TestSignTransactionAuditFailure(t *testing.T) {
+	native := marshalTx(t, types.NewTransaction(1, testTo, big.NewInt(10), 21000, big.NewInt(5), nil))
+	auditErr := errors.New("audit db down")
+
+	keys := newKeyProvider(t)
+	signed, err := newAuditedTestService(keys, &auditStub{err: auditErr}).SignTransaction(context.Background(), SignTransactionParams{Service: "exchange", KeyID: keys.key.ID, Network: constants.NetworkEthereum, RawTx: native})
+	if signed != nil || !errors.Is(err, auditErr) || !keys.signed {
+		t.Fatalf("signed without audit: signed = %v, err = %v", signed, err)
+	}
+
+	keys = newKeyProvider(t)
+	keys.key.Role.Policy = json.RawMessage(`{}`)
+	if _, err := newAuditedTestService(keys, &auditStub{err: auditErr}).SignTransaction(context.Background(), SignTransactionParams{Service: "exchange", KeyID: keys.key.ID, Network: constants.NetworkEthereum, RawTx: native}); !errors.Is(err, ErrPolicyViolation) {
+		t.Fatalf("denied: err = %v, want policy violation", err)
 	}
 }

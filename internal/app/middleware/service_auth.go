@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 
 	serviceclient "gitlab.tve-development.com/backend/gtoken/wallet-service/internal/features/service_client"
 	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/infra/httputil"
@@ -12,8 +13,9 @@ import (
 )
 
 const (
-	serviceKeyHeader  = "X-Service-Key"
-	ContextServiceKey = "service"
+	serviceKeyHeader        = "X-Service-Key"
+	ContextServiceKey       = "service"
+	ContextServiceClientKey = "service_client_id"
 )
 
 type authenticator interface {
@@ -46,6 +48,7 @@ func (m *ServiceAuth) Handle() gin.HandlerFunc {
 		}
 
 		c.Set(ContextServiceKey, client.Service)
+		c.Set(ContextServiceClientKey, client.ID)
 		c.Next()
 	}
 }
@@ -57,4 +60,18 @@ func GetService(c *gin.Context) (string, error) {
 	}
 
 	return service, nil
+}
+
+func GetServiceClientID(c *gin.Context) (uuid.UUID, error) {
+	id, ok := c.Get(ContextServiceClientKey)
+	if !ok {
+		return uuid.Nil, serviceclient.ErrUnauthorized
+	}
+
+	clientID, ok := id.(uuid.UUID)
+	if !ok {
+		return uuid.Nil, serviceclient.ErrUnauthorized
+	}
+
+	return clientID, nil
 }

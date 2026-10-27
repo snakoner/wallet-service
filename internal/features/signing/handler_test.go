@@ -18,6 +18,8 @@ import (
 	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/validation"
 )
 
+var testClientID = uuid.New()
+
 type serviceStub struct {
 	params SignTransactionParams
 	err    error
@@ -41,6 +43,7 @@ func doSignTransaction(t *testing.T, svc *serviceStub, service, keyID, body stri
 	setService := func(c *gin.Context) {
 		if service != "" {
 			c.Set(middleware.ContextServiceKey, service)
+			c.Set(middleware.ContextServiceClientKey, testClientID)
 		}
 		c.Next()
 	}
@@ -57,7 +60,7 @@ func TestHandlerSignTransaction(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("code = %d, body = %s", w.Code, w.Body)
 	}
-	if svc.params.Service != "exchange" || svc.params.KeyID != keyID || svc.params.Network != constants.NetworkEthereum || string(svc.params.RawTx) != "\x01\x02" {
+	if svc.params.Service != "exchange" || svc.params.ServiceClientID != testClientID || svc.params.KeyID != keyID || svc.params.Network != constants.NetworkEthereum || string(svc.params.RawTx) != "\x01\x02" {
 		t.Fatalf("params = %+v", svc.params)
 	}
 	var resp struct {

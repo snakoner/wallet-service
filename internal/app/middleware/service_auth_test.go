@@ -8,10 +8,13 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 
 	serviceclient "gitlab.tve-development.com/backend/gtoken/wallet-service/internal/features/service_client"
 	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/infra/logger"
 )
+
+var stubClientID = uuid.New()
 
 type authStub struct{ err error }
 
@@ -22,16 +25,18 @@ func (a authStub) Authenticate(_ context.Context, key string) (*serviceclient.Se
 	if key != "good" {
 		return nil, serviceclient.ErrUnauthorized
 	}
-	return &serviceclient.ServiceClient{Service: "exchange"}, nil
+	return &serviceclient.ServiceClient{ID: stubClientID, Service: "exchange"}, nil
 }
 
 func doRequest(t *testing.T, auth authStub, key string) (*httptest.ResponseRecorder, string, string) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	var service, headerAfter string
+	var clientID uuid.UUID
 	r := gin.New()
 	r.GET("/", NewServiceAuth(auth, logger.New(logger.Config{Level: "error"})).Handle(), func(c *gin.Context) {
 		service, _ = GetService(c)
+		clientID, _ = GetServiceClientID(c)
 		headerAfter = c.GetHeader(serviceKeyHeader)
 		c.Status(http.StatusOK)
 	})
@@ -41,6 +46,9 @@ func doRequest(t *testing.T, auth authStub, key string) (*httptest.ResponseRecor
 	}
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
+	if clientID != uuid.Nil && clientID != stubClientID {
+		t.Fatalf("service client id = %s, want %s", clientID, stubClientID)
+	}
 	return w, service, headerAfter
 }
 

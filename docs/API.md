@@ -137,7 +137,9 @@ curl -s -X POST http://localhost:8080/api/v1/roles/deposit/deposit-key \
 {"success":true,"data":{"signed_tx":"0x…","tx_hash":"0x…"}}
 ```
 
-Ошибки: `INVALID_TRANSACTION` (400, в т.ч. чужой `owner_address`), `UNSUPPORTED_NETWORK` (400), `INVALID_PARAMS` (400, сеть ключа другая), `VALIDATION_FAILED` (400), `POLICY_VIOLATION` (403), `KEY_NOT_FOUND` (404), `KEY_NOT_ACTIVE` (409), `LEASE_REQUIRED` (409, pool-ключ без аренды), `LEASE_EXPIRED` (409, аренда истекла или чужая), `KEY_LEASED` (409, ключ арендован другим экземпляром), `UNAUTHORIZED` (401).
+Ошибки: `INVALID_TRANSACTION` (400, в т.ч. чужой `owner_address`), `UNSUPPORTED_NETWORK` (400), `INVALID_PARAMS` (400, сеть ключа другая), `VALIDATION_FAILED` (400), `POLICY_VIOLATION` (403), `KEY_NOT_FOUND` (404), `KEY_NOT_ACTIVE` (409), `LEASE_REQUIRED` (409, pool-ключ без аренды), `LEASE_EXPIRED` (409, аренда истекла или чужая), `KEY_LEASED` (409, ключ арендован другим экземпляром), `UNAUTHORIZED` (401), `INTERNAL_ERROR` (500, в т.ч. не удалось записать аудит).
+
+Каждый запрос, дошедший до подписи (после авторизации и разбора hex), пишется в таблицу `signing_audit`: `service_client_id`, `key_id` как в запросе, `network`, `raw_tx`, `tx_hash` для подписанных, `error_code` для отклонённых. Если запись не удалась, подпись не возвращается (500); отказ при недоступном аудите возвращается со своим кодом, ошибка аудита пишется в лог.
 
 ### Аренда ключей (lease)
 
@@ -350,7 +352,7 @@ make test-integration   # интеграционные: поднимает docke
 `docker-compose.test.yml` (отдельный compose-проект `wallet-service-test`, порты 15433 / 18090 / 18545): Postgres, миграции up → down → up (проверка down-миграций), приложение и anvil (локальный Ethereum, chain id 31337). Тесты под тегом `integration`, обычный `go test ./...` их не запускает.
 
 - `internal/features/*/repository_integration_test.go` — SQL против настоящего Postgres: уникальности, гонка 20 `CreateKey` в single-роль, `IsServiceAddress`, фильтры `ListKeys`, ротация и параллельные ротации service key.
-- `test/integration` — API end-to-end: авторизация, роли, подпись ETH (legacy и EIP-1559) с отправкой в anvil и проверкой receipt, отказы (политика, chain id, статус ключа, чужой сервис), подпись TRON с восстановлением адреса из подписи, deposit-ключи (повтор и гонка по одному `external_ref`, вывод на газовый кошелёк), admin API.
+- `test/integration` — API end-to-end: авторизация, роли, подпись ETH (legacy и EIP-1559) с отправкой в anvil и проверкой receipt, отказы (политика, chain id, статус ключа, чужой сервис), записи `signing_audit` для подписи и отказов, подпись TRON с восстановлением адреса из подписи, deposit-ключи (повтор и гонка по одному `external_ref`, вывод на газовый кошелёк), admin API.
 
 ## Ещё не сделано
 
@@ -361,4 +363,5 @@ make test-integration   # интеграционные: поднимает docke
 | Go-клиент `pkg/client` для сервисов | шаг 6 |
 | Перевод atoken-exchange, cedex-retail, banknote на wallet-service | шаг 7 |
 | SSO-авторизация admin API | не начато |
+| Аудит действий админа | не начато, аудит подписей сделан |
 | `SignMessage` | не нужно (подписи банкнот остаются в banknote) |

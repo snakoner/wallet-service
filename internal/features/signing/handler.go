@@ -51,6 +51,12 @@ func (h *Handler) SignTransaction(c *gin.Context) {
 		return
 	}
 
+	serviceClientID, err := middleware.GetServiceClientID(c)
+	if err != nil {
+		httputil.Fail(c, err)
+		return
+	}
+
 	keyID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		httputil.Fail(c, keystorage.ErrKeyNotFound)
@@ -72,11 +78,12 @@ func (h *Handler) SignTransaction(c *gin.Context) {
 	}
 
 	signed, err := h.service.SignTransaction(c.Request.Context(), SignTransactionParams{
-		Service: service,
-		KeyID:   keyID,
-		Network: network,
-		RawTx:   rawTx,
-		LeaseID: req.LeaseID,
+		Service:         service,
+		ServiceClientID: serviceClientID,
+		KeyID:           keyID,
+		Network:         network,
+		RawTx:           rawTx,
+		LeaseID:         req.LeaseID,
 	})
 	if err != nil {
 		h.log.Error().Err(err).Str("key_id", keyID.String()).Msg("sign transaction")
