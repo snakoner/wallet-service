@@ -23,6 +23,7 @@ func TestSigningAudit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	denied, err := e.unsignedTx(1, common.HexToAddress("0x4444444444444444444444444444444444444444"), big.NewInt(1), true).MarshalBinary()
 	if err != nil {
 		t.Fatal(err)
@@ -32,9 +33,11 @@ func TestSigningAudit(t *testing.T) {
 	if status != http.StatusOK {
 		t.Fatalf("sign: status = %d, error = %+v", status, res.Error)
 	}
+
 	if status, _, _ := e.sign(gas.ID, "ethereum", denied); status != http.StatusForbidden {
 		t.Fatalf("denied: status = %d", status)
 	}
+
 	unknownKey := uuid.New()
 	if status, _, _ := e.sign(unknownKey, "ethereum", allowed); status != http.StatusNotFound {
 		t.Fatalf("unknown key: status = %d", status)
@@ -69,6 +72,7 @@ func TestSigningAudit(t *testing.T) {
 			if err := rows.Scan(&r.clientID, &r.network, &r.rawTx, &r.txHash, &r.errorCode); err != nil {
 				t.Fatal(err)
 			}
+
 			out = append(out, r)
 		}
 		return out
@@ -78,9 +82,11 @@ func TestSigningAudit(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("records = %d, want 2", len(got))
 	}
+
 	if r := got[0]; r.clientID != clientID || r.network != constants.NetworkEthereum || !bytes.Equal(r.rawTx, allowed) || r.txHash == nil || *r.txHash != out.TxHash || r.errorCode != nil {
 		t.Fatalf("signed record = %+v", r)
 	}
+
 	if r := got[1]; !bytes.Equal(r.rawTx, denied) || r.txHash != nil || r.errorCode == nil || *r.errorCode != "POLICY_VIOLATION" {
 		t.Fatalf("denied record = %+v", r)
 	}

@@ -39,9 +39,11 @@ func TestAuth(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	if err := e.clients.RevokeClient(e.ctx, clients[0].ID); err != nil {
 		t.Fatal(err)
 	}
+
 	if status, _ := e.call(http.MethodGet, path, e.apiKey, nil, nil); status != http.StatusUnauthorized {
 		t.Fatalf("revoked key: status = %d", status)
 	}
@@ -93,6 +95,7 @@ func TestSignEthereumBroadcast(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+
 			raw, err := e.unsignedTx(nonce, to, value, dynamic).MarshalBinary()
 			if err != nil {
 				t.Fatal(err)
@@ -107,6 +110,7 @@ func TestSignEthereumBroadcast(t *testing.T) {
 			if err := tx.UnmarshalBinary(common.FromHex(out.SignedTx)); err != nil {
 				t.Fatal(err)
 			}
+
 			if tx.Hash().Hex() != out.TxHash {
 				t.Fatalf("tx_hash = %s, want %s", out.TxHash, tx.Hash().Hex())
 			}
@@ -136,10 +140,12 @@ func TestSignRejected(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	toStranger, err := e.unsignedTx(0, common.HexToAddress("0x4444444444444444444444444444444444444444"), value, true).MarshalBinary()
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	otherChain, err := types.NewTx(&types.DynamicFeeTx{ChainID: big.NewInt(1), To: &common.Address{1}, Gas: 21000}).MarshalBinary()
 	if err != nil {
 		t.Fatal(err)
@@ -205,6 +211,7 @@ func TestSignTron(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	signer, err := tronlib.TronHexToBase58("41" + hex.EncodeToString(crypto.PubkeyToAddress(*pub).Bytes()))
 	if err != nil || signer != gas.Address {
 		t.Fatalf("signer = %s, err = %v, want %s", signer, err, gas.Address)

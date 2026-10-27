@@ -39,10 +39,12 @@ func TestAdminServiceClients(t *testing.T) {
 	if status, res := e.call(http.MethodPost, "/api/v1/admin/service-clients", "", map[string]string{"service": service}, &first); status != http.StatusOK || first.ServiceKey == "" || first.Client.State != "primary" {
 		t.Fatalf("create: status = %d, issued = %+v, error = %+v", status, first, res.Error)
 	}
+
 	// authorized key without role gives 404, not 401
 	if status := keyCheck(first.ServiceKey); status != http.StatusNotFound {
 		t.Fatalf("first key: status = %d", status)
 	}
+
 	if status, res := e.call(http.MethodPost, "/api/v1/admin/service-clients", "", map[string]string{"service": service}, nil); status != http.StatusConflict || res.Error.Code != "SERVICE_CLIENT_EXISTS" {
 		t.Fatalf("second create: status = %d, error = %+v", status, res.Error)
 	}
@@ -51,6 +53,7 @@ func TestAdminServiceClients(t *testing.T) {
 	if status, res := e.call(http.MethodPost, "/api/v1/admin/service-clients/rotate", "", map[string]any{"service": service, "grace_seconds": 3600}, &second); status != http.StatusOK || second.OldClient == nil || second.OldClient.State != "expiring" {
 		t.Fatalf("rotate: status = %d, issued = %+v, error = %+v", status, second, res.Error)
 	}
+
 	if keyCheck(first.ServiceKey) != http.StatusNotFound || keyCheck(second.ServiceKey) != http.StatusNotFound {
 		t.Fatal("both keys must work during grace period")
 	}
@@ -64,6 +67,7 @@ func TestAdminServiceClients(t *testing.T) {
 	if status, res := e.call(http.MethodPost, "/api/v1/admin/service-clients/"+third.Client.ID.String()+"/revoke", "", nil, nil); status != http.StatusOK {
 		t.Fatalf("revoke: status = %d, error = %+v", status, res.Error)
 	}
+
 	if status := keyCheck(third.ServiceKey); status != http.StatusUnauthorized {
 		t.Fatalf("revoked key: status = %d", status)
 	}
@@ -76,6 +80,7 @@ func TestAdminServiceClients(t *testing.T) {
 	for _, c := range clients {
 		states[c.State]++
 	}
+
 	if len(clients) != 3 || states["expiring"] != 1 || states["expired"] != 1 || states["revoked"] != 1 {
 		t.Fatalf("clients = %+v", clients)
 	}
@@ -90,6 +95,7 @@ func TestAdminImportKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	address := crypto.PubkeyToAddress(privateKey.PublicKey)
 
 	var key keyView
@@ -107,10 +113,12 @@ func TestAdminImportKey(t *testing.T) {
 	if status != http.StatusOK {
 		t.Fatalf("sign: status = %d, error = %+v", status, res.Error)
 	}
+
 	tx := new(types.Transaction)
 	if err := tx.UnmarshalBinary(common.FromHex(out.SignedTx)); err != nil {
 		t.Fatal(err)
 	}
+
 	e.broadcast(tx)
 	if sender, err := types.Sender(types.LatestSignerForChainID(anvilChainID), tx); err != nil || sender != address {
 		t.Fatalf("sender = %s, err = %v", sender, err)

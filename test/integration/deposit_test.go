@@ -74,6 +74,7 @@ func TestDepositKey(t *testing.T) {
 	if status, res := e.signAndSend(key.ID, from, common.HexToAddress(gas.Address), big.NewInt(1000)); status != http.StatusOK {
 		t.Fatalf("sweep to gas station: status = %d, error = %+v", status, res.Error)
 	}
+
 	if status, res := e.signAndSend(key.ID, from, common.HexToAddress("0x4444444444444444444444444444444444444444"), big.NewInt(1000)); status != http.StatusForbidden {
 		t.Fatalf("sweep to stranger: status = %d, error = %+v", status, res.Error)
 	}

@@ -39,10 +39,12 @@ func TestLeasePoolKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	raw, err := e.unsignedTx(nonce, common.HexToAddress(deposit.Address), big.NewInt(1000), true).MarshalBinary()
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	sign := func(leaseID *uuid.UUID) (int, apiResponse, signed) {
 		var out signed
 		body := map[string]any{"network": "ethereum", "raw_tx": "0x" + common.Bytes2Hex(raw)}
@@ -61,10 +63,12 @@ func TestLeasePoolKey(t *testing.T) {
 	if status != http.StatusOK {
 		t.Fatalf("sign with lease: status = %d, error = %+v", status, res.Error)
 	}
+
 	tx := new(types.Transaction)
 	if err := tx.UnmarshalBinary(common.FromHex(out.SignedTx)); err != nil {
 		t.Fatal(err)
 	}
+
 	e.broadcast(tx)
 
 	if status, res := e.call(http.MethodPost, "/api/v1/leases/"+lease.LeaseID.String()+"/extend", e.apiKey, map[string]any{"ttl_seconds": 120}, nil); status != http.StatusOK {
@@ -80,6 +84,7 @@ func TestLeasePoolKey(t *testing.T) {
 	if status, res := e.call(http.MethodDelete, "/api/v1/leases/"+lease.LeaseID.String(), e.apiKey, nil, nil); status != http.StatusOK {
 		t.Fatalf("release: status = %d, error = %+v", status, res.Error)
 	}
+
 	if status, res, _ := sign(&lease.LeaseID); status != http.StatusConflict || res.Error.Code != "LEASE_EXPIRED" {
 		t.Fatalf("sign with released lease: status = %d, error = %+v", status, res.Error)
 	}
@@ -90,6 +95,7 @@ func TestLeasePoolKey(t *testing.T) {
 	if status, res := e.call(http.MethodPost, "/api/v1/admin/keys/"+executor.ID.String()+"/release-lease", "", nil, nil); status != http.StatusOK {
 		t.Fatalf("admin release: status = %d, error = %+v", status, res.Error)
 	}
+
 	if status, res := e.call(http.MethodPost, "/api/v1/roles/executor/lease", e.apiKey, map[string]any{"network": "ethereum"}, nil); status != http.StatusOK {
 		t.Fatalf("lease after admin release: status = %d, error = %+v", status, res.Error)
 	}
@@ -112,6 +118,7 @@ func TestLeaseSingleKey(t *testing.T) {
 	if status, res := e.call(http.MethodPost, "/api/v1/roles/gas_station/lease", e.apiKey, map[string]any{"network": "ethereum"}, &lease); status != http.StatusOK {
 		t.Fatalf("lease single: status = %d, error = %+v", status, res.Error)
 	}
+
 	if status, res, _ := e.sign(gas.ID, "ethereum", raw); status != http.StatusConflict || res.Error.Code != "KEY_LEASED" {
 		t.Fatalf("leased single key without lease: status = %d, error = %+v", status, res.Error)
 	}

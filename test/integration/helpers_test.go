@@ -103,6 +103,7 @@ func (e *env) role(purpose string, network constants.Network, kind constants.Rol
 	if err != nil {
 		e.tb.Fatal(err)
 	}
+
 	return role
 }
 
@@ -117,6 +118,7 @@ func (e *env) key(role *keystorage.Role, externalRef string) *keystorage.WalletK
 	if err != nil {
 		e.tb.Fatal(err)
 	}
+
 	return key
 }
 
@@ -137,6 +139,7 @@ func (e *env) call(method, path, apiKey string, body any, out any) (int, apiResp
 		if err != nil {
 			e.tb.Fatal(err)
 		}
+
 		reader = bytes.NewReader(data)
 	}
 
@@ -144,6 +147,7 @@ func (e *env) call(method, path, apiKey string, body any, out any) (int, apiResp
 	if err != nil {
 		e.tb.Fatal(err)
 	}
+
 	req.Header.Set("Content-Type", "application/json")
 	if apiKey != "" {
 		req.Header.Set("X-Service-Key", apiKey)
@@ -242,6 +246,7 @@ func (e *env) broadcast(tx *types.Transaction) *types.Receipt {
 			if receipt.Status != types.ReceiptStatusSuccessful {
 				e.tb.Fatalf("tx %s reverted", tx.Hash())
 			}
+
 			return receipt
 		}
 

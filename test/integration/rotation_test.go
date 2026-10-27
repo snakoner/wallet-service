@@ -27,6 +27,7 @@ func (e *env) signAndSend(keyID uuid.UUID, from, to common.Address, value *big.I
 	if err != nil {
 		e.tb.Fatal(err)
 	}
+
 	raw, err := e.unsignedTx(nonce, to, value, false).MarshalBinary()
 	if err != nil {
 		e.tb.Fatal(err)
@@ -41,6 +42,7 @@ func (e *env) signAndSend(keyID uuid.UUID, from, to common.Address, value *big.I
 	if err := tx.UnmarshalBinary(common.FromHex(out.SignedTx)); err != nil {
 		e.tb.Fatal(err)
 	}
+
 	e.broadcast(tx)
 
 	return status, res
@@ -52,6 +54,7 @@ func (e *env) admin(action string, keyID uuid.UUID) keyView {
 	if status, res := e.call(http.MethodPost, "/api/v1/admin/keys/"+keyID.String()+"/"+action, "", nil, &key); status != http.StatusOK {
 		e.tb.Fatalf("%s %s: status = %d, error = %+v", action, keyID, status, res.Error)
 	}
+
 	return key
 }
 
@@ -67,6 +70,7 @@ func TestRotateGasStation(t *testing.T) {
 	if replacement.Status != "pending" {
 		t.Fatalf("replacement = %+v", replacement)
 	}
+
 	replacementAddress := common.HexToAddress(replacement.Address)
 
 	var current keyView
@@ -78,6 +82,7 @@ func TestRotateGasStation(t *testing.T) {
 	if status, res := e.signAndSend(old.ID, oldAddress, replacementAddress, halfEth); status != http.StatusOK {
 		t.Fatalf("fund replacement: status = %d, error = %+v", status, res.Error)
 	}
+
 	if status, res := e.signAndSend(old.ID, oldAddress, common.HexToAddress("0x4444444444444444444444444444444444444444"), big.NewInt(1)); status != http.StatusForbidden || res.Error.Code != "POLICY_VIOLATION" {
 		t.Fatalf("old key to stranger: status = %d, error = %+v", status, res.Error)
 	}
@@ -87,6 +92,7 @@ func TestRotateGasStation(t *testing.T) {
 	if current.ID != replacement.ID {
 		t.Fatalf("current after activation = %+v", current)
 	}
+
 	if status, res := e.signAndSend(replacement.ID, replacementAddress, common.HexToAddress(deposit.Address), big.NewInt(1)); status != http.StatusOK {
 		t.Fatalf("replacement funds deposit: status = %d, error = %+v", status, res.Error)
 	}
@@ -95,10 +101,12 @@ func TestRotateGasStation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	gasPrice, err := e.eth.SuggestGasPrice(e.ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	rest := new(big.Int).Sub(balance, new(big.Int).Mul(gasPrice, big.NewInt(21000)))
 	nonce, _ := e.eth.PendingNonceAt(e.ctx, oldAddress)
 	raw, _ := types.NewTransaction(nonce, replacementAddress, rest, 21000, gasPrice, nil).MarshalBinary()
@@ -106,10 +114,12 @@ func TestRotateGasStation(t *testing.T) {
 	if status != http.StatusOK {
 		t.Fatalf("sweep: status = %d, error = %+v", status, res.Error)
 	}
+
 	sweep := new(types.Transaction)
 	if err := sweep.UnmarshalBinary(common.FromHex(out.SignedTx)); err != nil {
 		t.Fatal(err)
 	}
+
 	e.broadcast(sweep)
 	if left, _ := e.eth.BalanceAt(e.ctx, oldAddress, nil); left.Sign() != 0 {
 		t.Fatalf("old key balance after sweep = %s", left)
@@ -118,6 +128,7 @@ func TestRotateGasStation(t *testing.T) {
 	if revoked := e.admin("revoke", old.ID); revoked.Status != "revoked" {
 		t.Fatalf("revoked = %+v", revoked)
 	}
+
 	if status, res, _ := e.sign(old.ID, "ethereum", raw); status != http.StatusConflict || res.Error.Code != "KEY_NOT_ACTIVE" {
 		t.Fatalf("revoked key: status = %d, error = %+v", status, res.Error)
 	}
