@@ -371,7 +371,7 @@ func (r *Repository) ListKeys(ctx context.Context, tx db.DBTX, filter ListKeysFi
 		add("k.external_ref = $%d", *filter.ExternalRef)
 	}
 
-	args = append(args, filter.Limit)
+	args = append(args, filter.Limit, filter.Offset)
 
 	rows, err := tx.Query(ctx, `
 		SELECT
@@ -395,7 +395,7 @@ func (r *Repository) ListKeys(ctx context.Context, tx db.DBTX, filter ListKeysFi
 		JOIN wallet_roles r ON r.id = k.role_id
 		WHERE `+strings.Join(conditions, " AND ")+`
 		ORDER BY k.created_at DESC, k.id
-		LIMIT $`+strconv.Itoa(len(args)),
+		LIMIT $`+strconv.Itoa(len(args)-1)+` OFFSET $`+strconv.Itoa(len(args)),
 		args...,
 	)
 	if err != nil {

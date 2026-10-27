@@ -226,13 +226,16 @@ curl -s -X POST http://localhost:8080/api/v1/roles/deposit/deposit-key \
 | `network` | `ethereum` / `tron` / `arbitrum` |
 | `status` | `active` / `rotating` / `pending` / `disabled` / `revoked` |
 | `external_ref` | id заказа deposit-ключа |
+| `offset` | сколько ключей пропустить, по умолчанию 0 |
 | `limit` | по умолчанию 100, максимум 1000 |
 
+`offset` и `limit` разбираются мягко: невалидные значения заменяются значениями по умолчанию, `limit` больше 1000 обрезается до 1000.
+
 ```bash
-curl -s "http://localhost:8080/api/v1/admin/keys?service=exchange&purpose=executor&network=ethereum&status=active"
+curl -s "http://localhost:8080/api/v1/admin/keys?service=exchange&purpose=executor&network=ethereum&status=active&offset=100&limit=100"
 ```
 
-Ошибки: `VALIDATION_FAILED` (400, неизвестные network/status, limit вне 1..1000).
+Ошибки: `VALIDATION_FAILED` (400, неизвестные network/status).
 
 ### Жизненный цикл ключа
 
@@ -271,6 +274,38 @@ curl -s "http://localhost:8080/api/v1/admin/keys?service=exchange&purpose=execut
 `grace_seconds` по умолчанию 86400 (24 часа); `0` — старый ключ отключается сразу. `client.state`: `primary`, `expiring`, `expired`, `revoked`.
 
 Ошибки: `SERVICE_CLIENT_EXISTS` (409, у сервиса уже есть основной ключ — нужна ротация), `SERVICE_CLIENT_NOT_FOUND` (404), `VALIDATION_FAILED` (400).
+
+### `GET /api/v1/admin/audit` — журнал подписей
+
+Записи `signing_audit` от новых к старым: подписанные и отклонённые запросы `sign-transaction`. Все параметры необязательные, пустые не применяются.
+
+| Параметр | |
+|---|---|
+| `key_id` | uuid ключа (как в запросе подписи, ключа может не быть) |
+| `service` | сервис вызывающего `X-Service-Key` |
+| `tx_hash` | хэш подписанной транзакции, точное совпадение |
+| `error_code` | код ошибки ответа, например `POLICY_VIOLATION` |
+| `failed` | `true` — только отклонённые, `false` — только подписанные |
+| `from` / `to` | RFC3339, `from` включительно, `to` не включительно, например `2026-10-27T00:00:00Z` |
+| `offset` | сколько записей пропустить, по умолчанию 0 |
+| `limit` | по умолчанию 100, максимум 1000 |
+
+```bash
+curl -s "http://localhost:8080/api/v1/admin/audit?service=exchange&failed=true&from=2026-10-27T00:00:00Z&limit=50"
+```
+
+```json
+{"success": true, "data": [{
+  "id": "…", "created_at": "2026-10-27T13:00:00Z",
+  "service_client_id": "…", "service": "exchange",
+  "key_id": "…", "network": "ethereum",
+  "raw_tx": "0x…", "error_code": "POLICY_VIOLATION"
+}]}
+```
+
+`raw_tx` — неподписанная транзакция как пришла, hex с `0x`; `tx_hash` есть у подписанных, `error_code` — у отклонённых. Пагинация разбирается мягко, как у `/admin/keys`.
+
+Ошибки: `VALIDATION_FAILED` (400, `key_id` не uuid), `BAD_REQUEST` (400, `from`/`to` не RFC3339, `failed` не bool).
 
 ## Ротация ключей
 
@@ -354,7 +389,7 @@ make test-integration   # интеграционные: поднимает docke
 `docker-compose.test.yml` (отдельный compose-проект `wallet-service-test`, порты 15433 / 18090 / 18545): Postgres, миграции up → down → up (проверка down-миграций), приложение и anvil (локальный Ethereum, chain id 31337). Тесты под тегом `integration`, обычный `go test ./...` их не запускает.
 
 - `internal/features/*/repository_integration_test.go` — SQL против настоящего Postgres: уникальности, гонка 20 `CreateKey` в single-роль, `IsServiceAddress`, фильтры `ListKeys`, ротация и параллельные ротации service key.
-- `test/integration` — API end-to-end: авторизация, роли, подпись ETH (legacy и EIP-1559) с отправкой в anvil и проверкой receipt, отказы (политика, chain id, статус ключа, чужой сервис), записи `signing_audit` для подписи и отказов, подпись TRON с восстановлением адреса из подписи, deposit-ключи (повтор и гонка по одному `external_ref`, вывод на газовый кошелёк), admin API, аренда (pool, single, последние 10 секунд, TTL), два «пода» параллельно шлют газ с одного single-ключа под арендой (nonce без повторов и пропусков, все tx в блоках, поды реально конкурировали).
+- `test/integration` — API end-to-end: авторизация, роли, подпись ETH (legacy и EIP-1559) с отправкой в anvil и проверкой receipt, отказы (политика, chain id, статус ключа, чужой сервис), записи `signing_audit` для подписи и отказов и их чтение через `GET /admin/audit` (фильтры, offset/limit), подпись TRON с восстановлением адреса из подписи, deposit-ключи (повтор и гонка по одному `external_ref`, вывод на газовый кошелёк), admin API, аренда (pool, single, последние 10 секунд, TTL), два «пода» параллельно шлют газ с одного single-ключа под арендой (nonce без повторов и пропусков, все tx в блоках, поды реально конкурировали).
 
 ## Ещё не сделано
 

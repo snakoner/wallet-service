@@ -15,6 +15,103 @@ const docTemplate = `{
     "host": "{{.Host}}",
     "basePath": "{{.BasePath}}",
     "paths": {
+        "/api/v1/admin/audit": {
+            "get": {
+                "description": "Newest first, empty parameters are not applied.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Signing audit: every sign-transaction request, signed or denied",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Key id",
+                        "name": "key_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Service of caller",
+                        "name": "service",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Hash of signed tx",
+                        "name": "tx_hash",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Error code of response, e.g. POLICY_VIOLATION",
+                        "name": "error_code",
+                        "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "true - only denied or failed, false - only signed",
+                        "name": "failed",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Created at or after, RFC3339",
+                        "name": "from",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Created before, RFC3339",
+                        "name": "to",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Records to skip, default 0",
+                        "name": "offset",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Max records, default 100, max 1000",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/httputil.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "$ref": "#/definitions/audit.SigningRecordResponse"
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httputil.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/admin/keys": {
             "get": {
                 "description": "Newest first, every filter applies only if parameter is present, so ?label= selects keys with empty label.",
@@ -67,6 +164,12 @@ const docTemplate = `{
                         "type": "string",
                         "description": "Order id of deposit key",
                         "name": "external_ref",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Keys to skip, default 0",
+                        "name": "offset",
                         "in": "query"
                     },
                     {
@@ -1465,6 +1568,39 @@ const docTemplate = `{
         }
     },
     "definitions": {
+        "audit.SigningRecordResponse": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "error_code": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "key_id": {
+                    "type": "string"
+                },
+                "network": {
+                    "type": "string"
+                },
+                "raw_tx": {
+                    "description": "unsigned tx as received, hex with 0x",
+                    "type": "string"
+                },
+                "service": {
+                    "type": "string"
+                },
+                "service_client_id": {
+                    "type": "string"
+                },
+                "tx_hash": {
+                    "type": "string"
+                }
+            }
+        },
         "httputil.ErrorBody": {
             "type": "object",
             "properties": {

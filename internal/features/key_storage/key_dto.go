@@ -13,7 +13,6 @@ type ListKeysQuery struct {
 	Network     string  `form:"network" binding:"omitempty,network"`
 	Status      string  `form:"status" binding:"omitempty,key_status" enums:"active,rotating,pending,disabled,revoked"`
 	ExternalRef *string `form:"external_ref"`
-	Limit       int     `form:"limit" binding:"omitempty,min=1,max=1000"`
 }
 
 type GetDepositKeyRequest struct {

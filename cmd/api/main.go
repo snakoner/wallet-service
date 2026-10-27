@@ -80,10 +80,12 @@ func main() {
 		cfg.KeyStorage.KEKVersion,
 	)
 
+	auditService := audit.NewService(audit.NewRepository(), txm)
+
 	signingService := signing.NewService(
 		log,
 		keyStorageService,
-		audit.NewService(audit.NewRepository(), txm),
+		auditService,
 		map[constants.Network]signing.TxSigner{
 			constants.NetworkEthereum: ethereum.NewSigner(big.NewInt(cfg.Ethereum.ChainID)),
 			constants.NetworkTron:     tron.NewSigner(),
@@ -97,6 +99,7 @@ func main() {
 		KeyStorage:   keystorage.NewHandler(keyStorageService, log),
 		Admin:        keystorage.NewAdminHandler(keyStorageService, log),
 		ClientsAdmin: serviceclient.NewAdminHandler(serviceClientService, log),
+		AuditAdmin:   audit.NewAdminHandler(auditService, log),
 		Signing:      signing.NewHandler(signingService, log),
 	}
 

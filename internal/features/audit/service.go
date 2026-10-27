@@ -12,6 +12,7 @@ import (
 
 type repository interface {
 	CreateSigningRecord(ctx context.Context, tx db.DBTX, record *SigningRecord) error
+	ListSigningRecords(ctx context.Context, tx db.DBTX, filter ListSigningFilter) ([]SigningRecord, error)
 }
 
 type Service struct {
@@ -34,4 +35,8 @@ func (s *Service) RecordSigning(ctx context.Context, record *SigningRecord) erro
 
 	// record is written even if caller has gone
 	return s.repo.CreateSigningRecord(context.WithoutCancel(ctx), s.txm.GetPool(), record)
+}
+
+func (s *Service) ListSigning(ctx context.Context, filter ListSigningFilter) ([]SigningRecord, error) {
+	return s.repo.ListSigningRecords(ctx, s.txm.GetPool(), filter)
 }

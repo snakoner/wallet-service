@@ -88,6 +88,7 @@ func (h *AdminHandler) ListRoleKeys(c *gin.Context) {
 // @Param       network      query string false "Network: ethereum, tron, arbitrum"
 // @Param       status       query string false "Key status" Enums(active, rotating, pending, disabled, revoked)
 // @Param       external_ref query string false "Order id of deposit key"
+// @Param       offset       query int    false "Keys to skip, default 0"
 // @Param       limit        query int    false "Max keys, default 100, max 1000"
 // @Success     200 {object} httputil.Response{data=[]key_storage.KeyResponse}
 // @Failure     400 {object} httputil.ErrorResponse
@@ -99,12 +100,14 @@ func (h *AdminHandler) ListKeys(c *gin.Context) {
 		return
 	}
 
+	offset, limit := httputil.ParsePagination(c)
 	filter := ListKeysFilter{
 		Service:     query.Service,
 		Purpose:     query.Purpose,
 		Label:       query.Label,
 		ExternalRef: query.ExternalRef,
-		Limit:       query.Limit,
+		Offset:      offset,
+		Limit:       limit,
 	}
 	if query.Network != "" {
 		network, _ := constants.ParseNetwork(query.Network)

@@ -204,6 +204,8 @@ func TestIntegrationListKeys(t *testing.T) {
 		{"network", ListKeysFilter{Service: &service, Network: &tron}, 2},
 		{"status", ListKeysFilter{Service: &service, Status: &revoked}, 1},
 		{"limit", ListKeysFilter{Service: &service, Limit: 1}, 1},
+		{"offset", ListKeysFilter{Service: &service, Offset: 2, Limit: 100}, 1},
+		{"offset past end", ListKeysFilter{Service: &service, Offset: 3}, 0},
 	} {
 		keys, err := srv.ListKeys(ctx, tc.filter)
 		if err != nil || len(keys) != tc.want {

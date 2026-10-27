@@ -1,4 +1,26 @@
 definitions:
+  audit.SigningRecordResponse:
+    properties:
+      created_at:
+        type: string
+      error_code:
+        type: string
+      id:
+        type: string
+      key_id:
+        type: string
+      network:
+        type: string
+      raw_tx:
+        description: unsigned tx as received, hex with 0x
+        type: string
+      service:
+        type: string
+      service_client_id:
+        type: string
+      tx_hash:
+        type: string
+    type: object
   httputil.ErrorBody:
     properties:
       code:
@@ -258,6 +280,67 @@ info:
   title: Wallet Service API
   version: "1.0"
 paths:
+  /api/v1/admin/audit:
+    get:
+      description: Newest first, empty parameters are not applied.
+      parameters:
+      - description: Key id
+        in: query
+        name: key_id
+        type: string
+      - description: Service of caller
+        in: query
+        name: service
+        type: string
+      - description: Hash of signed tx
+        in: query
+        name: tx_hash
+        type: string
+      - description: Error code of response, e.g. POLICY_VIOLATION
+        in: query
+        name: error_code
+        type: string
+      - description: true - only denied or failed, false - only signed
+        in: query
+        name: failed
+        type: boolean
+      - description: Created at or after, RFC3339
+        in: query
+        name: from
+        type: string
+      - description: Created before, RFC3339
+        in: query
+        name: to
+        type: string
+      - description: Records to skip, default 0
+        in: query
+        name: offset
+        type: integer
+      - description: Max records, default 100, max 1000
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httputil.Response'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/audit.SigningRecordResponse'
+                  type: array
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httputil.ErrorResponse'
+      summary: 'Signing audit: every sign-transaction request, signed or denied'
+      tags:
+      - admin
   /api/v1/admin/keys:
     get:
       description: Newest first, every filter applies only if parameter is present,
@@ -293,6 +376,10 @@ paths:
         in: query
         name: external_ref
         type: string
+      - description: Keys to skip, default 0
+        in: query
+        name: offset
+        type: integer
       - description: Max keys, default 100, max 1000
         in: query
         name: limit

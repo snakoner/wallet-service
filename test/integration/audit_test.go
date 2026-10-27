@@ -4,6 +4,7 @@ package integration
 
 import (
 	"bytes"
+	"encoding/hex"
 	"math/big"
 	"net/http"
 	"testing"
@@ -93,5 +94,64 @@ func TestSigningAudit(t *testing.T) {
 
 	if got := records(unknownKey); len(got) != 1 || got[0].errorCode == nil || *got[0].errorCode != "KEY_NOT_FOUND" {
 		t.Fatalf("unknown key records = %+v", got)
+	}
+
+	type auditView struct {
+		Service   string    `json:"service"`
+		KeyID     uuid.UUID `json:"key_id"`
+		Network   string    `json:"network"`
+		RawTx     string    `json:"raw_tx"`
+		TxHash    *string   `json:"tx_hash"`
+		ErrorCode *string   `json:"error_code"`
+	}
+	list := func(query string) []auditView {
+		t.Helper()
+		var views []auditView
+		if status, res := e.call(http.MethodGet, "/api/v1/admin/audit?"+query, "", nil, &views); status != http.StatusOK {
+			t.Fatalf("audit ?%s: status = %d, error = %+v", query, status, res.Error)
+		}
+		return views
+	}
+
+	byKey := "key_id=" + gas.ID.String()
+	got2 := list(byKey)
+	if len(got2) != 2 {
+		t.Fatalf("api records = %d, want 2", len(got2))
+	}
+	if r := got2[0]; r.ErrorCode == nil || *r.ErrorCode != "POLICY_VIOLATION" || r.RawTx != "0x"+hex.EncodeToString(denied) {
+		t.Fatalf("newest api record = %+v", r)
+	}
+	if r := got2[1]; r.Service != e.service || r.KeyID != gas.ID || r.Network != "ethereum" || r.RawTx != "0x"+hex.EncodeToString(allowed) || r.TxHash == nil || *r.TxHash != out.TxHash || r.ErrorCode != nil {
+		t.Fatalf("signed api record = %+v", r)
+	}
+
+	for _, tc := range []struct {
+		query     string
+		want      int
+		wantError string // error code of first record, "" - signed
+	}{
+		{byKey + "&limit=1", 1, "POLICY_VIOLATION"},
+		{byKey + "&offset=1&limit=1", 1, ""},
+		{byKey + "&offset=2", 0, ""},
+		{byKey + "&failed=true", 1, "POLICY_VIOLATION"},
+		{byKey + "&failed=false", 1, ""},
+		{byKey + "&from=2000-01-01T00:00:00Z", 2, "POLICY_VIOLATION"},
+		{byKey + "&to=2000-01-01T00:00:00Z", 0, ""},
+		{"tx_hash=" + out.TxHash, 1, ""},
+		{"service=" + e.service + "&error_code=KEY_NOT_FOUND", 1, "KEY_NOT_FOUND"},
+	} {
+		got := list(tc.query)
+		if len(got) != tc.want {
+			t.Fatalf("?%s: records = %d, want %d", tc.query, len(got), tc.want)
+		}
+		if len(got) > 0 && (got[0].ErrorCode == nil && tc.wantError != "" || got[0].ErrorCode != nil && *got[0].ErrorCode != tc.wantError) {
+			t.Fatalf("?%s: first record = %+v, want error %q", tc.query, got[0], tc.wantError)
+		}
+	}
+
+	for _, query := range []string{"key_id=1", "from=yesterday"} {
+		if status, _ := e.call(http.MethodGet, "/api/v1/admin/audit?"+query, "", nil, nil); status != http.StatusBadRequest {
+			t.Fatalf("?%s: status = %d, want 400", query, status)
+		}
 	}
 }

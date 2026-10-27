@@ -50,23 +50,28 @@ func TestAdminListRoleKeys(t *testing.T) {
 
 func TestAdminListKeys(t *testing.T) {
 	svc := &adminServiceStub{}
-	w := doAdmin(t, svc, http.MethodGet, "/api/v1/admin/keys?service=exchange&purpose=executor&label=&network=ethereum&status=active&external_ref=o-1&limit=10", "")
+	w := doAdmin(t, svc, http.MethodGet, "/api/v1/admin/keys?service=exchange&purpose=executor&label=&network=ethereum&status=active&external_ref=o-1&offset=20&limit=10", "")
 	if w.Code != http.StatusOK || strings.Contains(w.Body.String(), "secret") || !strings.Contains(w.Body.String(), `"address":"0xA"`) {
 		t.Fatalf("code = %d, body = %s", w.Code, w.Body)
 	}
 	f := svc.keysFilter
 	if f.Service == nil || *f.Service != "exchange" || f.Purpose == nil || *f.Purpose != "executor" || f.Label == nil || *f.Label != "" ||
 		f.Network == nil || *f.Network != constants.NetworkEthereum || f.Status == nil || *f.Status != constants.KeyStatusActive ||
-		f.ExternalRef == nil || *f.ExternalRef != "o-1" || f.Limit != 10 {
+		f.ExternalRef == nil || *f.ExternalRef != "o-1" || f.Offset != 20 || f.Limit != 10 {
 		t.Fatalf("filter = %+v", f)
 	}
 
 	svc = &adminServiceStub{}
-	if w := doAdmin(t, svc, http.MethodGet, "/api/v1/admin/keys", ""); w.Code != http.StatusOK || svc.keysFilter != (ListKeysFilter{}) {
+	if w := doAdmin(t, svc, http.MethodGet, "/api/v1/admin/keys", ""); w.Code != http.StatusOK || svc.keysFilter != (ListKeysFilter{Limit: 100}) {
 		t.Fatalf("no filters: code = %d, filter = %+v", w.Code, svc.keysFilter)
 	}
 
-	for name, query := range map[string]string{"bad network": "?network=btc", "bad status": "?status=deleted", "bad limit": "?limit=5000"} {
+	svc = &adminServiceStub{}
+	if w := doAdmin(t, svc, http.MethodGet, "/api/v1/admin/keys?offset=-1&limit=5000", ""); w.Code != http.StatusOK || svc.keysFilter.Offset != 0 || svc.keysFilter.Limit != 1000 {
+		t.Fatalf("out of range pagination: code = %d, filter = %+v", w.Code, svc.keysFilter)
+	}
+
+	for name, query := range map[string]string{"bad network": "?network=btc", "bad status": "?status=deleted"} {
 		t.Run(name, func(t *testing.T) {
 			if w := doAdmin(t, &adminServiceStub{}, http.MethodGet, "/api/v1/admin/keys"+query, ""); w.Code != http.StatusBadRequest {
 				t.Fatalf("code = %d, body = %s", w.Code, w.Body)

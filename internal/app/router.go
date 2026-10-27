@@ -56,6 +56,8 @@ func NewRouter(
 			admin.GET("/service-clients", handlers.ClientsAdmin.ListClients)
 			admin.POST("/service-clients/rotate", handlers.ClientsAdmin.RotateClient)
 			admin.POST("/service-clients/:id/revoke", handlers.ClientsAdmin.RevokeClient)
+
+			admin.GET("/audit", handlers.AuditAdmin.ListSigning)
 		}
 
 		roles := api.Group("/roles", serviceAuth.Handle())

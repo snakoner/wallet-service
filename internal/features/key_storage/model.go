@@ -80,6 +80,7 @@ type ListKeysFilter struct {
 	Network     *constants.Network
 	Status      *constants.KeyStatus
 	ExternalRef *string
+	Offset      int
 	Limit       int
 }
 
