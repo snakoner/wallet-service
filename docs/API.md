@@ -382,15 +382,30 @@ wallet-admin revoke-service-client -id <service_client_id>
 wallet-admin list-service-clients [-service exchange]
 wallet-admin create-role -service exchange -purpose gas_station -label atoken -network tron -kind single [-policy policy.json]
 wallet-admin list-roles [-service exchange]
-wallet-admin list-keys [-service exchange] [-purpose executor] [-label ""] [-network ethereum] [-status active] [-external-ref order-1] [-limit 100]
+wallet-admin get-role -id <role_id>
+wallet-admin list-role-keys -role <role_id> [-offset 0] [-limit 100]
 wallet-admin set-policy -role <role_id> -policy policy.json
+wallet-admin list-keys [-service exchange] [-purpose executor] [-label ""] [-network ethereum] [-status active] [-external-ref order-1] [-address 0x…] [-leased true] [-offset 0] [-limit 100]
+wallet-admin get-key -id <key_id>
 wallet-admin create-key -role <role_id> [-alias name] [-external-ref order-1]
 echo "<private key hex>" | wallet-admin import-key -role <role_id> [-alias name] [-external-ref order-1]
 wallet-admin rotate-key | activate-key | revoke-key | disable-key | enable-key -id <key_id>
 wallet-admin release-lease -id <key_id>
+wallet-admin list-audit [-key-id <key_id>] [-service exchange] [-tx-hash 0x…] [-error-code POLICY_VIOLATION] [-failed true] [-from 2026-10-27T00:00:00Z] [-to …] [-offset 0] [-limit 100] [-raw-data]
 ```
 
-`list-keys -limit` — от 1 до 1000, иначе команда завершается с ошибкой.
+Команды повторяют admin API один в один:
+
+| Команда | Ручка |
+|---|---|
+| `create-service-client` / `rotate-service-client` / `revoke-service-client` / `list-service-clients` | `POST /admin/service-clients`, `…/rotate`, `…/{id}/revoke`, `GET /admin/service-clients` |
+| `create-role` / `list-roles` / `get-role` / `set-policy` | `POST /admin/roles`, `GET /admin/roles`, `GET /admin/roles/{id}`, `PUT /admin/roles/{id}/policy` |
+| `create-key` / `import-key` / `list-role-keys` | `POST /admin/roles/{id}/keys`, `…/keys/import`, `GET /admin/roles/{id}/keys` |
+| `list-keys` / `get-key` | `GET /admin/keys`, `GET /admin/keys/{id}` |
+| `rotate-key` / `activate-key` / `revoke-key` / `disable-key` / `enable-key` / `release-lease` | `POST /admin/keys/{id}/…` |
+| `list-audit` | `GET /admin/audit` |
+
+Списки печатают таблицу и строку `shown 101-200 of 1520` (как `total` в API). В отличие от API, параметры проверяются строго: `-limit` вне 1..1000, отрицательный `-offset`, `-leased`/`-failed` не bool, `-from`/`-to` не RFC3339 — команда завершается с ошибкой.
 
 `import-key` — перенос существующих ключей из env сервисов. В production admin API нет, там всё делается через CLI.
 
