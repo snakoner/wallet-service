@@ -1,25 +1,21 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/hex"
-	"encoding/json"
 	"flag"
 	"fmt"
-	"io"
 	"log"
 	"math/big"
-	"net/http"
-	"net/url"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
+
+	"gitlab.tve-development.com/backend/gtoken/wallet-service/pkg/client"
 )
 
 const usage = `ethereum-gas-station-send - send ETH from gas station via wallet service
@@ -40,63 +36,6 @@ Flags:
 Example:
   WALLET_SERVICE_KEY=... ETH_RPC_URL=https://... ethereum-gas-station-send -to 0x... -amount 0.001 -send
 `
-
-type apiResponse struct {
-	Success bool            `json:"success"`
-	Data    json.RawMessage `json:"data"`
-	Error   *struct {
-		Code    string `json:"code"`
-		Message string `json:"message"`
-	} `json:"error"`
-}
-
-type walletClient struct {
-	baseURL    string
-	serviceKey string
-	http       *http.Client
-}
-
-func (c *walletClient) do(ctx context.Context, method, path string, body, out any) error {
-	var reader io.Reader
-	if body != nil {
-		data, err := json.Marshal(body)
-		if err != nil {
-			return err
-		}
-		reader = bytes.NewReader(data)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, reader)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("X-Service-Key", c.serviceKey)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	var res apiResponse
-	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
-		return fmt.Errorf("%s %s: status %d, decode response: %w", method, path, resp.StatusCode, err)
-	}
-
-	if !res.Success {
-		if res.Error != nil {
-			return fmt.Errorf("%s %s: %d %s: %s", method, path, resp.StatusCode, res.Error.Code, res.Error.Message)
-		}
-		return fmt.Errorf("%s %s: status %d", method, path, resp.StatusCode)
-	}
-
-	if out == nil {
-		return nil
-	}
-
-	return json.Unmarshal(res.Data, out)
-}
 
 func main() {
 	fs := flag.NewFlagSet("ethereum-gas-station-send", flag.ExitOnError)
@@ -124,23 +63,16 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
-	wallet := &walletClient{baseURL: strings.TrimRight(*apiURL, "/"), serviceKey: *serviceKey, http: &http.Client{Timeout: 15 * time.Second}}
+	wallet := client.New(*apiURL, *serviceKey, nil)
 
 	// active key signs only with lease: other instances do not sign with it until release, nonce is not reused
-	var lease struct {
-		LeaseID string `json:"lease_id"`
-		Key     struct {
-			ID      string `json:"id"`
-			Address string `json:"address"`
-		} `json:"key"`
-	}
-	leaseReq := map[string]string{"network": "ethereum", "label": *label, "owner": "ethereum-gas-station-send"}
-	if err := wallet.do(ctx, http.MethodPost, "/api/v1/roles/"+url.PathEscape(*purpose)+"/lease", leaseReq, &lease); err != nil {
+	lease, err := wallet.AcquireLease(ctx, *purpose, client.LeaseRequest{Network: client.NetworkEthereum, Label: *label, Owner: "ethereum-gas-station-send"})
+	if err != nil {
 		log.Fatalf("lease gas station key: %v", err)
 	}
 	// on fatal exit lease is freed by ttl
 	defer func() {
-		if err := wallet.do(ctx, http.MethodDelete, "/api/v1/leases/"+lease.LeaseID, nil, nil); err != nil {
+		if err := wallet.ReleaseLease(ctx, lease.LeaseID); err != nil {
 			log.Printf("release lease: %v", err)
 		}
 	}()
@@ -198,12 +130,8 @@ func main() {
 	}
 	fmt.Printf("tx:           %s ETH to %s, nonce %d, chain %s, gas %d, max fee %s wei\n", *amount, toAddress.Hex(), nonce, chainID, gas, feeCap)
 
-	var signed struct {
-		SignedTx string `json:"signed_tx"`
-		TxHash   string `json:"tx_hash"`
-	}
-	signReq := map[string]string{"network": "ethereum", "lease_id": lease.LeaseID, "raw_tx": "0x" + hex.EncodeToString(rawTx)}
-	if err := wallet.do(ctx, http.MethodPost, "/api/v1/keys/"+key.ID+"/sign-transaction", signReq, &signed); err != nil {
+	signed, err := wallet.SignTransaction(ctx, key.ID, client.SignRequest{Network: client.NetworkEthereum, RawTx: "0x" + hex.EncodeToString(rawTx), LeaseID: &lease.LeaseID})
+	if err != nil {
 		log.Fatalf("sign tx: %v", err)
 	}
 	fmt.Printf("tx hash:      %s\n", signed.TxHash)

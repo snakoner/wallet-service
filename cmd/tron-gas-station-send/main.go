@@ -11,12 +11,13 @@ import (
 	"log"
 	"math/big"
 	"net/http"
-	"net/url"
 	"os"
 	"strings"
 	"time"
 
 	tronlib "github.com/w3-developers/go-tron-lib"
+
+	"gitlab.tve-development.com/backend/gtoken/wallet-service/pkg/client"
 )
 
 const usage = `tron-gas-station-send - send TRX from gas station via wallet service
@@ -38,63 +39,6 @@ Flags:
 Example:
   WALLET_SERVICE_KEY=... TRON_NODE_URL=https://nile.trongrid.io tron-gas-station-send -to T... -amount 1 -send
 `
-
-type apiResponse struct {
-	Success bool            `json:"success"`
-	Data    json.RawMessage `json:"data"`
-	Error   *struct {
-		Code    string `json:"code"`
-		Message string `json:"message"`
-	} `json:"error"`
-}
-
-type walletClient struct {
-	baseURL    string
-	serviceKey string
-	http       *http.Client
-}
-
-func (c *walletClient) do(ctx context.Context, method, path string, body, out any) error {
-	var reader io.Reader
-	if body != nil {
-		data, err := json.Marshal(body)
-		if err != nil {
-			return err
-		}
-		reader = bytes.NewReader(data)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, reader)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("X-Service-Key", c.serviceKey)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	var res apiResponse
-	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
-		return fmt.Errorf("%s %s: status %d, decode response: %w", method, path, resp.StatusCode, err)
-	}
-
-	if !res.Success {
-		if res.Error != nil {
-			return fmt.Errorf("%s %s: %d %s: %s", method, path, resp.StatusCode, res.Error.Code, res.Error.Message)
-		}
-		return fmt.Errorf("%s %s: status %d", method, path, resp.StatusCode)
-	}
-
-	if out == nil {
-		return nil
-	}
-
-	return json.Unmarshal(res.Data, out)
-}
 
 type tronNode struct {
 	baseURL string
@@ -167,24 +111,17 @@ func main() {
 	defer cancel()
 
 	httpClient := &http.Client{Timeout: 15 * time.Second}
-	wallet := &walletClient{baseURL: strings.TrimRight(*apiURL, "/"), serviceKey: *serviceKey, http: httpClient}
+	wallet := client.New(*apiURL, *serviceKey, httpClient)
 	node := &tronNode{baseURL: strings.TrimRight(*nodeURL, "/"), apiKey: *nodeKey, http: httpClient}
 
 	// active key signs only with lease: other instances do not sign with it until release, nonce is not reused
-	var lease struct {
-		LeaseID string `json:"lease_id"`
-		Key     struct {
-			ID      string `json:"id"`
-			Address string `json:"address"`
-		} `json:"key"`
-	}
-	leaseReq := map[string]string{"network": "tron", "label": *label, "owner": "tron-gas-station-send"}
-	if err := wallet.do(ctx, http.MethodPost, "/api/v1/roles/"+url.PathEscape(*purpose)+"/lease", leaseReq, &lease); err != nil {
+	lease, err := wallet.AcquireLease(ctx, *purpose, client.LeaseRequest{Network: client.NetworkTron, Label: *label, Owner: "tron-gas-station-send"})
+	if err != nil {
 		log.Fatalf("lease gas station key: %v", err)
 	}
 	// on fatal exit lease is freed by ttl
 	defer func() {
-		if err := wallet.do(ctx, http.MethodDelete, "/api/v1/leases/"+lease.LeaseID, nil, nil); err != nil {
+		if err := wallet.ReleaseLease(ctx, lease.LeaseID); err != nil {
 			log.Printf("release lease: %v", err)
 		}
 	}()
@@ -205,12 +142,8 @@ func main() {
 	}
 	fmt.Printf("tx:           %s TRX to %s (%d sun)\n", *amount, *to, value)
 
-	var signed struct {
-		SignedTx string `json:"signed_tx"`
-		TxHash   string `json:"tx_hash"`
-	}
-	signReq := map[string]string{"network": "tron", "lease_id": lease.LeaseID, "raw_tx": tx.RawDataHex}
-	if err := wallet.do(ctx, http.MethodPost, "/api/v1/keys/"+key.ID+"/sign-transaction", signReq, &signed); err != nil {
+	signed, err := wallet.SignTransaction(ctx, key.ID, client.SignRequest{Network: client.NetworkTron, RawTx: tx.RawDataHex, LeaseID: &lease.LeaseID})
+	if err != nil {
 		log.Fatalf("sign tx: %v", err)
 	}
 	if signed.TxHash != tx.TxID {

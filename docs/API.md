@@ -1,6 +1,6 @@
 # Wallet Service: что уже сделано в API
 
-Обновлено: 27.10.2026. Документ обновляется после каждого изменения ручек.
+Обновлено: 28.10.2026. Документ обновляется после каждого изменения ручек.
 
 ## Общее
 
@@ -178,6 +178,36 @@ curl -s -X POST http://localhost:8080/api/v1/roles/deposit/deposit-key \
 Ошибка: `LEASE_EXPIRED` (409) — аренда уже освобождена или чужая.
 
 Порядок работы сервиса: lease → проверить газ (мало — release и lease с `exclude`) → nonce с тегом `pending` → sign с `lease_id` → отправить → release. Ждать подтверждения под арендой не нужно.
+
+## Go-клиент (`pkg/client`)
+
+Ручки для сервисов из Go без своего HTTP-кода: заголовок `X-Service-Key`, разбор `{success, data, error}`, ошибки по коду.
+
+```go
+import "gitlab.tve-development.com/backend/gtoken/wallet-service/pkg/client"
+
+wallet := client.New("http://wallet:8080", serviceKey, nil) // nil: http.Client с таймаутом 15 секунд
+
+lease, err := wallet.AcquireLease(ctx, "gas_station", client.LeaseRequest{Network: client.NetworkEthereum, Owner: podName})
+if errors.Is(err, client.ErrNoFreeKey) {
+	// все ключи заняты: повторить через RetryAfter из *client.Error (errors.As)
+}
+defer wallet.ReleaseLease(ctx, lease.LeaseID)
+
+signed, err := wallet.SignTransaction(ctx, lease.Key.ID, client.SignRequest{Network: client.NetworkEthereum, RawTx: rawTxHex, LeaseID: &lease.LeaseID})
+```
+
+| Метод | Ручка |
+|---|---|
+| `GetKey(ctx, purpose, label, network)` | `GET /roles/{purpose}/key` |
+| `ListKeys(ctx, purpose, label, network)` | `GET /roles/{purpose}/keys` |
+| `DepositKey(ctx, purpose, DepositKeyRequest)` | `POST /roles/{purpose}/deposit-key` |
+| `AcquireLease(ctx, purpose, LeaseRequest)` | `POST /roles/{purpose}/lease` |
+| `ExtendLease(ctx, leaseID, ttlSeconds)` | `POST /leases/{lease_id}/extend` |
+| `ReleaseLease(ctx, leaseID)` | `DELETE /leases/{lease_id}` |
+| `SignTransaction(ctx, keyID, SignRequest)` | `POST /keys/{id}/sign-transaction` |
+
+Ошибка ответа — `*client.Error` (`Status`, `Code`, `Message`, `Fields` для `VALIDATION_FAILED`, `RetryAfter` для `NO_FREE_KEY`), обёрнутая с методом и путём. Код проверяется через `errors.Is(err, client.ErrLeaseExpired)` и т.п.: есть переменные для всех кодов ручек сервисов. Сетевые ошибки и не-JSON ответ (например, от прокси) — обычные ошибки, не `*client.Error`. Admin API в клиенте нет.
 
 ## Admin API
 
@@ -365,9 +395,9 @@ curl -s "http://localhost:8080/api/v1/admin/audit?service=exchange&failed=true&f
 
 ```bash
 wallet-admin rotate-key -id <A>                        # B pending
-gas-station-send -to <B> -amount 0.05 -send            # пополнить B с A
+ethereum-gas-station-send -to <B> -amount 0.05 -send            # пополнить B с A
 wallet-admin activate-key -id <B>
-gas-station-send -to <B> -amount <остаток> -send        # после переходного периода
+ethereum-gas-station-send -to <B> -amount <остаток> -send        # после переходного периода
 wallet-admin revoke-key -id <A>
 ```
 
@@ -414,12 +444,14 @@ wallet-admin list-audit [-key-id <key_id>] [-service exchange] [-tx-hash 0x…] 
 
 ## Инструменты
 
-### `cmd/gas-station-send` — отправка ETH с газового кошелька
+Обе утилиты ходят в wallet-service через `pkg/client`.
+
+### `cmd/ethereum-gas-station-send` — отправка ETH с газового кошелька
 
 Делает то же, что будет делать сервис: арендует ключ газового кошелька (`POST /roles/gas_station/lease`), собирает неподписанную EIP-1559 tx по данным RPC (chainId, pending nonce, комиссии), подписывает через `sign-transaction` с `lease_id`, с `-send` отправляет в сеть и освобождает аренду. Если утилита упала, аренда снимается сама через 60 секунд; пока она жива, остальные подписи газовым кошельком получают `KEY_LEASED`.
 
 ```bash
-WALLET_SERVICE_KEY=... ETH_RPC_URL=https://... go run ./cmd/gas-station-send -to 0x... -amount 0.001 [-purpose gas_station] [-label atoken] [-send]
+WALLET_SERVICE_KEY=... ETH_RPC_URL=https://... go run ./cmd/ethereum-gas-station-send -to 0x... -amount 0.001 [-purpose gas_station] [-label atoken] [-send]
 ```
 
 Без `-send` только печатает `tx_hash` и подписанную tx. Получатель должен быть разрешён политикой газового кошелька, иначе `403 POLICY_VIOLATION`. Справка — запуск без флагов.
@@ -444,16 +476,16 @@ make test-integration   # интеграционные: поднимает docke
 `docker-compose.test.yml` (отдельный compose-проект `wallet-service-test`, порты 15433 / 18090 / 18545): Postgres, миграции up → down → up (проверка down-миграций), приложение и anvil (локальный Ethereum, chain id 31337). Тесты под тегом `integration`, обычный `go test ./...` их не запускает.
 
 - `internal/features/*/repository_integration_test.go` — SQL против настоящего Postgres: уникальности, гонка 20 `CreateKey` в single-роль, `IsServiceAddress`, фильтры `ListKeys`, ротация и параллельные ротации service key, параллельные активация замещающего ключа и отключение замещаемого без deadlock, параллельные отзыв и активация одного pending-ключа (оба порядка дают согласованный итог), аренда выдаёт только active-ключи (disabled, revoked, pending и rotating пропускаются), `rewrap-keys` пропускает заблокированный ключ и добирает его повторным запуском, после перешифровки ключи расшифровываются одним новым KEK.
+- `pkg/client/client_test.go` — запросы клиента (пути, экранирование `purpose` и query, тела, `X-Service-Key`) и разбор ошибок: код, `fields`, `Retry-After`, не-JSON ответ.
 - `internal/config/config_test.go` — разбор `KEY_STORAGE_OLD_KEKS`: несколько версий, ошибки формата, длины и дубли версий.
 - `internal/infra/httputil/pagination_test.go` — `offset`/`limit`: значения по умолчанию, отрицательные, нулевые и нечисловые значения, потолок 1000.
-- `test/integration` — API end-to-end: авторизация, роли, подпись ETH (legacy и EIP-1559) с отправкой в anvil и проверкой receipt, отказы (политика, chain id, статус ключа, чужой сервис), записи `signing_audit` для подписи и отказов и их чтение через `GET /admin/audit` (фильтры, offset/limit), карточки ключа и роли, пагинация ключей роли, фильтры `address` и `leased`, подпись TRON с восстановлением адреса из подписи, deposit-ключи (повтор и гонка по одному `external_ref`, вывод на газовый кошелёк), admin API, аренда (pool, single, последние 10 секунд, TTL), два «пода» параллельно шлют газ с одного single-ключа под арендой (nonce без повторов и пропусков, все tx в блоках, поды реально конкурировали).
+- `test/integration` — API end-to-end: авторизация, роли, подпись ETH (legacy и EIP-1559) с отправкой в anvil и проверкой receipt, отказы (политика, chain id, статус ключа, чужой сервис), записи `signing_audit` для подписи и отказов и их чтение через `GET /admin/audit` (фильтры, offset/limit), карточки ключа и роли, пагинация ключей роли, фильтры `address` и `leased`, подпись TRON с восстановлением адреса из подписи, deposit-ключи (повтор и гонка по одному `external_ref`, вывод на газовый кошелёк), admin API, аренда (pool, single, последние 10 секунд, TTL), два «пода» параллельно шлют газ с одного single-ключа под арендой (nonce без повторов и пропусков, все tx в блоках, поды реально конкурировали), `pkg/client` против настоящего API: все ручки сервисов и коды ошибок через `errors.Is`.
 
 ## Ещё не сделано
 
 | Что | Статус |
 |---|---|
 | Лимиты за период и проверка аргументов `contract_call` в политике | после аудита, см. [POLICY.md](POLICY.md) §7 |
-| Go-клиент `pkg/client` для сервисов | шаг 6 |
 | Перевод atoken-exchange, cedex-retail, banknote на wallet-service | шаг 7 |
 | SSO-авторизация admin API | не начато |
 | Аудит действий админа | не начато, аудит подписей сделан |
