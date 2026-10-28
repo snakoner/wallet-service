@@ -492,6 +492,20 @@ func (r *Repository) ListKeys(ctx context.Context, tx db.DBTX, filter ListKeysFi
 	return keys, nil
 }
 
+func (r *Repository) GetKeyRoleID(ctx context.Context, tx db.DBTX, id uuid.UUID) (uuid.UUID, error) {
+	var roleID uuid.UUID
+	err := tx.QueryRow(ctx, `SELECT role_id FROM wallet_keys WHERE id = $1`, id).Scan(&roleID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return uuid.Nil, ErrKeyNotFound
+	}
+
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("select role of wallet key: %w", err)
+	}
+
+	return roleID, nil
+}
+
 func (r *Repository) GetKeyForUpdate(ctx context.Context, tx db.DBTX, id uuid.UUID) (*WalletKey, error) {
 	return scanLockedKey(tx.QueryRow(ctx, `
 		SELECT

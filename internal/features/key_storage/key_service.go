@@ -182,10 +182,29 @@ func generateKey(keys networkKeys) ([]byte, string, error) {
 	return []byte(privateKey), address, nil
 }
 
+func (s *Service) lockKey(ctx context.Context, tx db.DBTX, keyID uuid.UUID) (*Role, *WalletKey, error) {
+	roleID, err := s.repo.GetKeyRoleID(ctx, tx, keyID)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	role, err := s.repo.GetRoleForUpdate(ctx, tx, roleID)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	key, err := s.repo.GetKeyForUpdate(ctx, tx, keyID)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return role, key, nil
+}
+
 func (s *Service) RotateKey(ctx context.Context, keyID uuid.UUID) (*WalletKey, error) {
 	var replacement *WalletKey
 	err := s.txm.WithTx(ctx, func(ctx context.Context, tx db.DBTX) error {
-		old, err := s.repo.GetKeyForUpdate(ctx, tx, keyID)
+		role, old, err := s.lockKey(ctx, tx, keyID)
 		if err != nil {
 			return err
 		}
@@ -200,11 +219,6 @@ func (s *Service) RotateKey(ctx context.Context, keyID uuid.UUID) (*WalletKey, e
 
 		if old.ReplacedBy != nil {
 			return ErrRotationInProgress
-		}
-
-		role, err := s.repo.GetRoleForUpdate(ctx, tx, old.RoleID)
-		if err != nil {
-			return err
 		}
 
 		replacement, err = s.insertKey(ctx, tx, role, old.Alias, nil, constants.KeyStatusPending, generateKey)
@@ -227,16 +241,12 @@ func (s *Service) ActivateKey(ctx context.Context, keyID uuid.UUID) (*WalletKey,
 	var key *WalletKey
 	err := s.txm.WithTx(ctx, func(ctx context.Context, tx db.DBTX) error {
 		var err error
-		if key, err = s.repo.GetKeyForUpdate(ctx, tx, keyID); err != nil {
+		if _, key, err = s.lockKey(ctx, tx, keyID); err != nil {
 			return err
 		}
 
 		if key.Status != constants.KeyStatusPending {
 			return ErrInvalidKeyStatus.WithMessage("only pending key can be activated")
-		}
-
-		if _, err := s.repo.GetRoleForUpdate(ctx, tx, key.RoleID); err != nil {
-			return err
 		}
 
 		now := time.Now().UTC()
@@ -278,7 +288,7 @@ func (s *Service) RevokeKey(ctx context.Context, keyID uuid.UUID) (*WalletKey, e
 	var key *WalletKey
 	err := s.txm.WithTx(ctx, func(ctx context.Context, tx db.DBTX) error {
 		var err error
-		if key, err = s.repo.GetKeyForUpdate(ctx, tx, keyID); err != nil {
+		if _, key, err = s.lockKey(ctx, tx, keyID); err != nil {
 			return err
 		}
 
@@ -324,16 +334,12 @@ func (s *Service) switchKey(ctx context.Context, keyID uuid.UUID, from, to const
 	var key *WalletKey
 	err := s.txm.WithTx(ctx, func(ctx context.Context, tx db.DBTX) error {
 		var err error
-		if key, err = s.repo.GetKeyForUpdate(ctx, tx, keyID); err != nil {
+		if _, key, err = s.lockKey(ctx, tx, keyID); err != nil {
 			return err
 		}
 
 		if key.Status != from {
 			return ErrInvalidKeyStatus.WithMessage("key must be " + from.String())
-		}
-
-		if _, err := s.repo.GetRoleForUpdate(ctx, tx, key.RoleID); err != nil {
-			return err
 		}
 
 		if to == constants.KeyStatusActive && key.Role.Kind == constants.RoleKindSingle {

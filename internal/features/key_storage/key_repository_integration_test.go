@@ -5,6 +5,7 @@ package key_storage
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -252,6 +253,58 @@ func TestIntegrationListKeys(t *testing.T) {
 	}
 	if _, counts, err := srv.GetRole(ctx, single.ID); err != nil || len(counts) != 1 || counts[constants.KeyStatusRevoked] != 1 {
 		t.Fatalf("single role counts = %v, err = %v", counts, err)
+	}
+}
+
+// Activate of replacement and disable of replaced key run at once: both lock role before keys, so they never deadlock.
+func TestIntegrationActivateDisableNoDeadlock(t *testing.T) {
+	srv, _ := newIntegrationService(t)
+	ctx := context.Background()
+	service := uniqueService()
+	active := constants.KeyStatusActive
+
+	for i := range 30 {
+		role := createIntegrationRole(t, srv, service, fmt.Sprintf("gas_station_%d", i), constants.NetworkEthereum, constants.RoleKindSingle, "")
+		old, err := srv.CreateKey(ctx, CreateKeyParams{RoleID: role.ID})
+		if err != nil {
+			t.Fatal(err)
+		}
+		replacement, err := srv.RotateKey(ctx, old.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		var (
+			wg    sync.WaitGroup
+			start = make(chan struct{})
+			errs  = make([]error, 2)
+		)
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			<-start
+			_, errs[0] = srv.ActivateKey(ctx, replacement.ID)
+		}()
+		go func() {
+			defer wg.Done()
+			<-start
+			_, errs[1] = srv.DisableKey(ctx, old.ID)
+		}()
+		close(start)
+		wg.Wait()
+
+		// disable first: old key is disabled and activate still succeeds; activate first: old key is rotating and disable is rejected
+		if errs[0] != nil {
+			t.Fatalf("iteration %d: activate: %v", i, errs[0])
+		}
+		if errs[1] != nil && !errors.Is(errs[1], ErrInvalidKeyStatus) {
+			t.Fatalf("iteration %d: disable: %v", i, errs[1])
+		}
+
+		keys, total, err := srv.ListKeys(ctx, ListKeysFilter{RoleID: &role.ID, Status: &active, Limit: 10})
+		if err != nil || total != 1 || keys[0].ID != replacement.ID {
+			t.Fatalf("iteration %d: active keys = %+v, total = %d, err = %v", i, keys, total, err)
+		}
 	}
 }
 

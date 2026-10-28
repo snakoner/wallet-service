@@ -36,6 +36,7 @@ type repository interface {
 	CountKeys(ctx context.Context, tx db.DBTX, filter ListKeysFilter) (int64, error)
 	UpdateRolePolicy(ctx context.Context, tx db.DBTX, id uuid.UUID, policy json.RawMessage) error
 	IsServiceAddress(ctx context.Context, tx db.DBTX, service string, network constants.Network, address, purpose string) (bool, error)
+	GetKeyRoleID(ctx context.Context, tx db.DBTX, id uuid.UUID) (uuid.UUID, error)
 	GetKeyForUpdate(ctx context.Context, tx db.DBTX, id uuid.UUID) (*WalletKey, error)
 	GetReplacedKeyForUpdate(ctx context.Context, tx db.DBTX, replacementID uuid.UUID) (*WalletKey, error)
 	UpdateKeyStatus(ctx context.Context, tx db.DBTX, id uuid.UUID, status constants.KeyStatus, now time.Time) error

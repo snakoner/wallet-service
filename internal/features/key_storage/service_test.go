@@ -224,6 +224,13 @@ func (r *repoStub) findKey(id uuid.UUID) *WalletKey {
 	return nil
 }
 
+func (r *repoStub) GetKeyRoleID(_ context.Context, _ db.DBTX, id uuid.UUID) (uuid.UUID, error) {
+	if key := r.findKey(id); key != nil {
+		return key.RoleID, nil
+	}
+	return uuid.Nil, ErrKeyNotFound
+}
+
 func (r *repoStub) GetKeyForUpdate(_ context.Context, _ db.DBTX, id uuid.UUID) (*WalletKey, error) {
 	if key := r.findKey(id); key != nil {
 		return key, nil
