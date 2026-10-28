@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/hex"
 	"errors"
 	"math/big"
 	"net/http"
@@ -11,7 +10,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	aes256 "github.com/w3-developers/go-aes256"
 
 	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/app"
 	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/app/middleware"
@@ -67,16 +65,16 @@ func main() {
 
 	txm := db.NewPgxTxManager(pool)
 
-	kek, err := hex.DecodeString(cfg.KeyStorage.KEK)
-	if err != nil || len(kek) != 32 {
-		log.Fatal().Msg("KEY_STORAGE_KEK must be 32 bytes in hex")
+	keks, err := cfg.KeyStorage.KEKs()
+	if err != nil {
+		log.Fatal().Err(err).Msg("invalid KEK config")
 	}
 
 	keyStorageService := keystorage.NewService(
 		log,
 		keystorage.NewRepository(),
 		txm,
-		aes256.NewAES256GCM(kek),
+		keystorage.NewKEKs(keks),
 		cfg.KeyStorage.KEKVersion,
 	)
 

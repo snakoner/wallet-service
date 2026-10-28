@@ -653,3 +653,58 @@ func (r *Repository) CountRoleKeys(ctx context.Context, tx db.DBTX, roleID uuid.
 
 	return counts, nil
 }
+
+func (r *Repository) ListKeysToRewrap(ctx context.Context, tx db.DBTX, kekVersion int32, limit int) ([]WalletKey, error) {
+	rows, err := tx.Query(ctx, `
+		SELECT 
+			id, 
+			kek_version, 
+			dek_cipher
+		FROM 
+			wallet_keys
+		WHERE 
+			kek_version <> $1
+		ORDER BY 
+			id
+		LIMIT $2
+		FOR UPDATE SKIP LOCKED`,
+		kekVersion,
+		limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("select wallet keys to rewrap: %w", err)
+	}
+	defer rows.Close()
+
+	var keys []WalletKey
+	for rows.Next() {
+		var key WalletKey
+		if err := rows.Scan(&key.ID, &key.KEKVersion, &key.DEKCipher); err != nil {
+			return nil, fmt.Errorf("scan wallet key to rewrap: %w", err)
+		}
+
+		keys = append(keys, key)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate wallet keys to rewrap: %w", err)
+	}
+
+	return keys, nil
+}
+
+func (r *Repository) CountKeysToRewrap(ctx context.Context, tx db.DBTX, kekVersion int32) (int64, error) {
+	var count int64
+	if err := tx.QueryRow(ctx, `SELECT count(*) FROM wallet_keys WHERE kek_version <> $1`, kekVersion).Scan(&count); err != nil {
+		return 0, fmt.Errorf("count wallet keys to rewrap: %w", err)
+	}
+
+	return count, nil
+}
+
+func (r *Repository) UpdateKeyDEK(ctx context.Context, tx db.DBTX, id uuid.UUID, dekCipher []byte, kekVersion int32) error {
+	if _, err := tx.Exec(ctx, `UPDATE wallet_keys SET dek_cipher = $2, kek_version = $3 WHERE id = $1`, id, dekCipher, kekVersion); err != nil {
+		return fmt.Errorf("update wallet key dek: %w", err)
+	}
+
+	return nil
+}

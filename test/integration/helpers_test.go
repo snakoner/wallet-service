@@ -23,7 +23,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	aes256 "github.com/w3-developers/go-aes256"
 
 	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/constants"
 	keystorage "gitlab.tve-development.com/backend/gtoken/wallet-service/internal/features/key_storage"
@@ -82,7 +81,7 @@ func newEnv(t *testing.T) *env {
 	txm := db.NewPgxTxManager(pool)
 	e := &env{
 		apiURL:  apiURL,
-		keys:    keystorage.NewService(log, keystorage.NewRepository(), txm, aes256.NewAES256GCM(kek), 1),
+		keys:    keystorage.NewService(log, keystorage.NewRepository(), txm, keystorage.NewKEKs(map[int32][]byte{1: kek}), 1),
 		clients: serviceclient.NewService(log, serviceclient.NewRepository(), txm),
 		pool:    pool,
 		eth:     eth,

@@ -34,7 +34,7 @@
   - `deposit` — ключ на каждый `external_ref` (кошелёк под заказ).
 - **policy** роли — правила подписи, проверяются при каждой подписи. Формат — [POLICY.md](POLICY.md). Без правил (`{}`, по умолчанию) роль **ничего не подписывает**.
 - **Статусы ключа**: `active`, `rotating`, `pending`, `disabled`, `revoked`. Подписывают `active`, `pending` (подготовка ротации) и `rotating` (дописать начатое, вывести остатки). Ротация — раздел [Ротация ключей](#ротация-ключей).
-- Приватные ключи хранятся зашифрованными (envelope: DEK на ключ + KEK из `KEY_STORAGE_KEK`) и никогда не отдаются наружу.
+- Приватные ключи хранятся зашифрованными (envelope: DEK на ключ + KEK из `KEY_STORAGE_KEK`, старые версии KEK — в `KEY_STORAGE_OLD_KEKS` до `rewrap-keys`) и никогда не отдаются наружу.
 
 ## Ручки для сервисов
 
@@ -391,6 +391,7 @@ wallet-admin create-key -role <role_id> [-alias name] [-external-ref order-1]
 echo "<private key hex>" | wallet-admin import-key -role <role_id> [-alias name] [-external-ref order-1]
 wallet-admin rotate-key | activate-key | revoke-key | disable-key | enable-key -id <key_id>
 wallet-admin release-lease -id <key_id>
+wallet-admin rewrap-keys
 wallet-admin list-audit [-key-id <key_id>] [-service exchange] [-tx-hash 0x…] [-error-code POLICY_VIOLATION] [-failed true] [-from 2026-10-27T00:00:00Z] [-to …] [-offset 0] [-limit 100] [-raw-data]
 ```
 
@@ -408,6 +409,8 @@ wallet-admin list-audit [-key-id <key_id>] [-service exchange] [-tx-hash 0x…] 
 Списки печатают таблицу и строку `shown 101-200 of 1520` (как `total` в API). В отличие от API, параметры проверяются строго: `-limit` вне 1..1000, отрицательный `-offset`, `-leased`/`-failed` не bool, `-from`/`-to` не RFC3339 — команда завершается с ошибкой.
 
 `import-key` — перенос существующих ключей из env сервисов. В production admin API нет, там всё делается через CLI.
+
+`rewrap-keys` — только в CLI, ручки нет: перешифровывает DEK ключей старых версий KEK текущим KEK (смена KEK, см. ARCHITECTURE.md, «Смена KEK»). Нужен тот же конфиг KEK, что у API: `KEY_STORAGE_KEK`, `KEY_STORAGE_KEK_VERSION`, `KEY_STORAGE_OLD_KEKS=1:<hex>,…`. Печатает, сколько ключей перешифровано и сколько осталось на старых версиях (заняты другими операциями — повторить). Сколько ключей на какой версии, видно в `kek_version` карточки ключа.
 
 ## Инструменты
 
@@ -440,7 +443,8 @@ make test-integration   # интеграционные: поднимает docke
 
 `docker-compose.test.yml` (отдельный compose-проект `wallet-service-test`, порты 15433 / 18090 / 18545): Postgres, миграции up → down → up (проверка down-миграций), приложение и anvil (локальный Ethereum, chain id 31337). Тесты под тегом `integration`, обычный `go test ./...` их не запускает.
 
-- `internal/features/*/repository_integration_test.go` — SQL против настоящего Postgres: уникальности, гонка 20 `CreateKey` в single-роль, `IsServiceAddress`, фильтры `ListKeys`, ротация и параллельные ротации service key, параллельные активация замещающего ключа и отключение замещаемого без deadlock, параллельные отзыв и активация одного pending-ключа (оба порядка дают согласованный итог), аренда выдаёт только active-ключи (disabled, revoked, pending и rotating пропускаются).
+- `internal/features/*/repository_integration_test.go` — SQL против настоящего Postgres: уникальности, гонка 20 `CreateKey` в single-роль, `IsServiceAddress`, фильтры `ListKeys`, ротация и параллельные ротации service key, параллельные активация замещающего ключа и отключение замещаемого без deadlock, параллельные отзыв и активация одного pending-ключа (оба порядка дают согласованный итог), аренда выдаёт только active-ключи (disabled, revoked, pending и rotating пропускаются), `rewrap-keys` пропускает заблокированный ключ и добирает его повторным запуском, после перешифровки ключи расшифровываются одним новым KEK.
+- `internal/config/config_test.go` — разбор `KEY_STORAGE_OLD_KEKS`: несколько версий, ошибки формата, длины и дубли версий.
 - `internal/infra/httputil/pagination_test.go` — `offset`/`limit`: значения по умолчанию, отрицательные, нулевые и нечисловые значения, потолок 1000.
 - `test/integration` — API end-to-end: авторизация, роли, подпись ETH (legacy и EIP-1559) с отправкой в anvil и проверкой receipt, отказы (политика, chain id, статус ключа, чужой сервис), записи `signing_audit` для подписи и отказов и их чтение через `GET /admin/audit` (фильтры, offset/limit), карточки ключа и роли, пагинация ключей роли, фильтры `address` и `leased`, подпись TRON с восстановлением адреса из подписи, deposit-ключи (повтор и гонка по одному `external_ref`, вывод на газовый кошелёк), admin API, аренда (pool, single, последние 10 секунд, TTL), два «пода» параллельно шлют газ с одного single-ключа под арендой (nonce без повторов и пропусков, все tx в блоках, поды реально конкурировали).
 
@@ -449,7 +453,6 @@ make test-integration   # интеграционные: поднимает docke
 | Что | Статус |
 |---|---|
 | Лимиты за период и проверка аргументов `contract_call` в политике | после аудита, см. [POLICY.md](POLICY.md) §7 |
-| Несколько KEK и перешифровка (`rewrap-keys`) | следующий шаг |
 | Go-клиент `pkg/client` для сервисов | шаг 6 |
 | Перевод atoken-exchange, cedex-retail, banknote на wallet-service | шаг 7 |
 | SSO-авторизация admin API | не начато |

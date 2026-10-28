@@ -1,9 +1,12 @@
 package config
 
 import (
+	"encoding/hex"
 	"fmt"
 	"log"
 	"os"
+	"strconv"
+	"strings"
 
 	"github.com/ilyakaznacheev/cleanenv"
 	"github.com/joho/godotenv"
@@ -47,6 +50,44 @@ func (db DBConfig) DSN() string {
 type KeyStorageConfig struct {
 	KEK        string `env:"KEY_STORAGE_KEK" env-required:"true"` // hex, 32 bytes
 	KEKVersion int32  `env:"KEY_STORAGE_KEK_VERSION" env-default:"1"`
+	OldKEKs    string `env:"KEY_STORAGE_OLD_KEKS"` // version:hex,...: decrypt keys until rewrap-keys moves them to current KEK
+}
+
+// KEKs returns current and old KEKs by version.
+func (c KeyStorageConfig) KEKs() (map[int32][]byte, error) {
+	keks := map[int32][]byte{}
+	add := func(version int32, kekHex string) error {
+		kek, err := hex.DecodeString(kekHex)
+		if err != nil || len(kek) != 32 {
+			return fmt.Errorf("kek version %d must be 32 bytes in hex", version)
+		}
+		if _, ok := keks[version]; ok || version <= 0 {
+			return fmt.Errorf("kek version %d is duplicate or not positive", version)
+		}
+		keks[version] = kek
+		return nil
+	}
+
+	if err := add(c.KEKVersion, c.KEK); err != nil {
+		return nil, err
+	}
+
+	if c.OldKEKs == "" {
+		return keks, nil
+	}
+
+	for _, item := range strings.Split(c.OldKEKs, ",") {
+		versionStr, kekHex, ok := strings.Cut(strings.TrimSpace(item), ":")
+		version, err := strconv.ParseInt(versionStr, 10, 32)
+		if !ok || err != nil {
+			return nil, fmt.Errorf("KEY_STORAGE_OLD_KEKS: want version:hex, got %q", versionStr)
+		}
+		if err := add(int32(version), kekHex); err != nil {
+			return nil, err
+		}
+	}
+
+	return keks, nil
 }
 
 type EthereumConfig struct {

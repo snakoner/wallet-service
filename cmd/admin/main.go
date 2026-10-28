@@ -13,7 +13,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
-	aes256 "github.com/w3-developers/go-aes256"
 
 	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/config"
 	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/constants"
@@ -108,6 +107,9 @@ Keys:
       -alias <name>
       -external-ref <ref>
 
+  rewrap-keys             re-encrypt DEK of keys of old KEK versions with current KEK
+                          needs KEY_STORAGE_KEK, KEY_STORAGE_KEK_VERSION and KEY_STORAGE_OLD_KEKS as in api
+
 Audit:
   list-audit              signing audit, newest first, filters apply only if flag is set
       -key-id <key_id>
@@ -171,6 +173,8 @@ func main() {
 		listAudit(os.Args[2:])
 	case "release-lease":
 		releaseLease(os.Args[2:])
+	case "rewrap-keys":
+		rewrapKeys(os.Args[2:])
 	case "rotate-key", "activate-key", "revoke-key", "disable-key", "enable-key":
 		keyAction(os.Args[1], os.Args[2:])
 	case "create-key":
@@ -208,12 +212,12 @@ func newAdmin(ctx context.Context) *admin {
 }
 
 func (a *admin) keyStorage() *keystorage.Service {
-	kek, err := hex.DecodeString(a.cfg.KeyStorage.KEK)
-	if err != nil || len(kek) != 32 {
-		a.log.Fatal().Msg("KEY_STORAGE_KEK must be 32 bytes in hex")
+	keks, err := a.cfg.KeyStorage.KEKs()
+	if err != nil {
+		a.log.Fatal().Err(err).Msg("invalid KEK config")
 	}
 
-	return keystorage.NewService(a.log, keystorage.NewRepository(), a.txm, aes256.NewAES256GCM(kek), a.cfg.KeyStorage.KEKVersion)
+	return keystorage.NewService(a.log, keystorage.NewRepository(), a.txm, keystorage.NewKEKs(keks), a.cfg.KeyStorage.KEKVersion)
 }
 
 func createServiceClient(args []string) {
@@ -735,6 +739,27 @@ func releaseLease(args []string) {
 	}
 
 	fmt.Printf("lease of key %s released\n", keyID)
+}
+
+func rewrapKeys(args []string) {
+	fs := flag.NewFlagSet("rewrap-keys", flag.ExitOnError)
+	_ = fs.Parse(args)
+
+	ctx := context.Background()
+	a := newAdmin(ctx)
+	defer a.pool.Close()
+
+	rewrapped, left, err := a.keyStorage().RewrapKeys(ctx)
+	fmt.Printf("rewrapped %d keys to kek version %d\n", rewrapped, a.cfg.KeyStorage.KEKVersion)
+	if err != nil {
+		a.log.Fatal().Err(err).Msg("failed to rewrap keys")
+	}
+
+	if left > 0 {
+		fmt.Printf("%d keys are still on old kek versions: they were in use, run again\n", left)
+		return
+	}
+	fmt.Println("all keys are on current kek version, old KEKs may be removed from KEY_STORAGE_OLD_KEKS")
 }
 
 func keyAction(command string, args []string) {

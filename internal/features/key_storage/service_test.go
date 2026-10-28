@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	aes256 "github.com/w3-developers/go-aes256"
 
 	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/constants"
 	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/infra/db"
@@ -171,6 +170,32 @@ func (r *repoStub) ForceReleaseLease(_ context.Context, _ db.DBTX, keyID uuid.UU
 	return nil
 }
 
+func (r *repoStub) ListKeysToRewrap(_ context.Context, _ db.DBTX, kekVersion int32, limit int) ([]WalletKey, error) {
+	var keys []WalletKey
+	for _, key := range r.keys {
+		if key.KEKVersion != kekVersion && len(keys) < limit {
+			keys = append(keys, *key)
+		}
+	}
+	return keys, nil
+}
+
+func (r *repoStub) CountKeysToRewrap(_ context.Context, _ db.DBTX, kekVersion int32) (int64, error) {
+	var count int64
+	for _, key := range r.keys {
+		if key.KEKVersion != kekVersion {
+			count++
+		}
+	}
+	return count, nil
+}
+
+func (r *repoStub) UpdateKeyDEK(_ context.Context, _ db.DBTX, id uuid.UUID, dekCipher []byte, kekVersion int32) error {
+	key := r.findKey(id)
+	key.DEKCipher, key.KEKVersion = dekCipher, kekVersion
+	return nil
+}
+
 func (r *repoStub) GetRoleForUpdate(_ context.Context, _ db.DBTX, id uuid.UUID) (*Role, error) {
 	for _, role := range r.roles {
 		if role.ID == id {
@@ -297,7 +322,7 @@ func newTestService(t *testing.T, repo repository) *Service {
 		t.Fatal(err)
 	}
 	log := logger.New(logger.Config{Level: "error"})
-	return NewService(log, repo, txmStub{}, aes256.NewAES256GCM(kek), 1)
+	return NewService(log, repo, txmStub{}, NewKEKs(map[int32][]byte{1: kek}), 1)
 }
 
 func createTestRole(t *testing.T, srv *Service, network constants.Network, kind constants.RoleKind) *Role {

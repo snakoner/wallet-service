@@ -45,11 +45,23 @@ type repository interface {
 	ExtendLease(ctx context.Context, tx db.DBTX, leaseID uuid.UUID, service string, ttl time.Duration) (time.Time, error)
 	ReleaseLease(ctx context.Context, tx db.DBTX, leaseID uuid.UUID, service string) error
 	ForceReleaseLease(ctx context.Context, tx db.DBTX, keyID uuid.UUID) error
+	ListKeysToRewrap(ctx context.Context, tx db.DBTX, kekVersion int32, limit int) ([]WalletKey, error)
+	CountKeysToRewrap(ctx context.Context, tx db.DBTX, kekVersion int32) (int64, error)
+	UpdateKeyDEK(ctx context.Context, tx db.DBTX, id uuid.UUID, dekCipher []byte, kekVersion int32) error
 }
 
 type KekCipher interface {
 	Encrypt(data []byte) ([]byte, error)
 	Decrypt(data []byte) ([]byte, error)
+}
+
+func NewKEKs(keks map[int32][]byte) map[int32]KekCipher {
+	ciphers := make(map[int32]KekCipher, len(keks))
+	for version, kek := range keks {
+		ciphers[version] = aes256.NewAES256GCM(kek)
+	}
+
+	return ciphers
 }
 
 type networkKeys struct {
@@ -67,7 +79,7 @@ type Service struct {
 	log        *logger.Logger
 	repo       repository
 	txm        db.TxManager
-	kek        KekCipher
+	keks       map[int32]KekCipher // current and old versions, new keys use kekVersion
 	kekVersion int32
 }
 
@@ -75,14 +87,14 @@ func NewService(
 	log *logger.Logger,
 	repo repository,
 	txm db.TxManager,
-	kek KekCipher,
+	keks map[int32]KekCipher,
 	kekVersion int32,
 ) *Service {
 	return &Service{
 		log:        log,
 		repo:       repo,
 		txm:        txm,
-		kek:        kek,
+		keks:       keks,
 		kekVersion: kekVersion,
 	}
 }
@@ -118,7 +130,7 @@ func (s *Service) encryptPrivateKey(privateKey []byte) ([]byte, []byte, error) {
 		return nil, nil, fmt.Errorf("encrypt key: %w", err)
 	}
 
-	dekCipher, err := s.kek.Encrypt(dek)
+	dekCipher, err := s.keks[s.kekVersion].Encrypt(dek)
 	if err != nil {
 		return nil, nil, fmt.Errorf("encrypt dek: %w", err)
 	}
@@ -128,11 +140,12 @@ func (s *Service) encryptPrivateKey(privateKey []byte) ([]byte, []byte, error) {
 
 // Caller must clear the returned private key.
 func (s *Service) decryptPrivateKey(key *WalletKey) ([]byte, error) {
-	if key.KEKVersion != s.kekVersion {
+	kek, ok := s.keks[key.KEKVersion]
+	if !ok {
 		return nil, fmt.Errorf("unknown kek version %d", key.KEKVersion)
 	}
 
-	dek, err := s.kek.Decrypt(key.DEKCipher)
+	dek, err := kek.Decrypt(key.DEKCipher)
 	if err != nil {
 		return nil, fmt.Errorf("decrypt dek: %w", err)
 	}
