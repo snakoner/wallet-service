@@ -119,12 +119,14 @@ func main() {
 	if err != nil {
 		log.Fatalf("lease gas station key: %v", err)
 	}
+
 	// on fatal exit lease is freed by ttl
 	defer func() {
 		if err := wallet.ReleaseLease(ctx, lease.LeaseID); err != nil {
 			log.Printf("release lease: %v", err)
 		}
 	}()
+
 	key := lease.Key
 	fmt.Printf("gas station:  %s (key %s)\n", key.Address, key.ID)
 
@@ -133,22 +135,27 @@ func main() {
 		RawDataHex string `json:"raw_data_hex"`
 		Error      string `json:"Error"`
 	}
+
 	createReq := map[string]any{"owner_address": key.Address, "to_address": *to, "amount": value, "visible": true}
 	if err := node.post(ctx, "/wallet/createtransaction", createReq, &tx); err != nil {
 		log.Fatalf("create tx: %v", err)
 	}
+
 	if tx.Error != "" || tx.RawDataHex == "" {
 		log.Fatalf("create tx: %s", tx.Error)
 	}
+
 	fmt.Printf("tx:           %s TRX to %s (%d sun)\n", *amount, *to, value)
 
 	signed, err := wallet.SignTransaction(ctx, key.ID, client.SignRequest{Network: client.NetworkTron, RawTx: tx.RawDataHex, LeaseID: &lease.LeaseID})
 	if err != nil {
 		log.Fatalf("sign tx: %v", err)
 	}
+
 	if signed.TxHash != tx.TxID {
 		log.Fatalf("tx hash mismatch: signed %s, node %s", signed.TxHash, tx.TxID)
 	}
+
 	fmt.Printf("tx hash:      %s\n", signed.TxHash)
 
 	if !*send {
@@ -162,9 +169,11 @@ func main() {
 		Code    string `json:"code"`
 		Message string `json:"message"`
 	}
+
 	if err := node.post(ctx, "/wallet/broadcasthex", map[string]string{"transaction": signed.SignedTx}, &result); err != nil {
 		log.Fatalf("broadcast tx: %v", err)
 	}
+
 	if !result.Result {
 		message, err := hex.DecodeString(result.Message)
 		if err != nil {
