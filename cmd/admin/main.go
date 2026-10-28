@@ -424,7 +424,7 @@ func listKeys(args []string) {
 		filter.Status = &status
 	}
 
-	keys, err := a.keyStorage().ListKeys(ctx, filter)
+	keys, _, err := a.keyStorage().ListKeys(ctx, filter)
 	if err != nil {
 		a.log.Fatal().Err(err).Msg("failed to list keys")
 	}

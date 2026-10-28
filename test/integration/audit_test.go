@@ -104,13 +104,18 @@ func TestSigningAudit(t *testing.T) {
 		TxHash    *string   `json:"tx_hash"`
 		ErrorCode *string   `json:"error_code"`
 	}
+	var total int64
 	list := func(query string) []auditView {
 		t.Helper()
-		var views []auditView
-		if status, res := e.call(http.MethodGet, "/api/v1/admin/audit?"+query, "", nil, &views); status != http.StatusOK {
+		var page struct {
+			Records []auditView `json:"records"`
+			Total   int64       `json:"total"`
+		}
+		if status, res := e.call(http.MethodGet, "/api/v1/admin/audit?"+query, "", nil, &page); status != http.StatusOK {
 			t.Fatalf("audit ?%s: status = %d, error = %+v", query, status, res.Error)
 		}
-		return views
+		total = page.Total
+		return page.Records
 	}
 
 	byKey := "key_id=" + gas.ID.String()
@@ -128,21 +133,22 @@ func TestSigningAudit(t *testing.T) {
 	for _, tc := range []struct {
 		query     string
 		want      int
+		wantTotal int64
 		wantError string // error code of first record, "" - signed
 	}{
-		{byKey + "&limit=1", 1, "POLICY_VIOLATION"},
-		{byKey + "&offset=1&limit=1", 1, ""},
-		{byKey + "&offset=2", 0, ""},
-		{byKey + "&failed=true", 1, "POLICY_VIOLATION"},
-		{byKey + "&failed=false", 1, ""},
-		{byKey + "&from=2000-01-01T00:00:00Z", 2, "POLICY_VIOLATION"},
-		{byKey + "&to=2000-01-01T00:00:00Z", 0, ""},
-		{"tx_hash=" + out.TxHash, 1, ""},
-		{"service=" + e.service + "&error_code=KEY_NOT_FOUND", 1, "KEY_NOT_FOUND"},
+		{byKey + "&limit=1", 1, 2, "POLICY_VIOLATION"},
+		{byKey + "&offset=1&limit=1", 1, 2, ""},
+		{byKey + "&offset=2", 0, 2, ""},
+		{byKey + "&failed=true", 1, 1, "POLICY_VIOLATION"},
+		{byKey + "&failed=false", 1, 1, ""},
+		{byKey + "&from=2000-01-01T00:00:00Z", 2, 2, "POLICY_VIOLATION"},
+		{byKey + "&to=2000-01-01T00:00:00Z", 0, 0, ""},
+		{"tx_hash=" + out.TxHash, 1, 1, ""},
+		{"service=" + e.service + "&error_code=KEY_NOT_FOUND", 1, 1, "KEY_NOT_FOUND"},
 	} {
 		got := list(tc.query)
-		if len(got) != tc.want {
-			t.Fatalf("?%s: records = %d, want %d", tc.query, len(got), tc.want)
+		if len(got) != tc.want || total != tc.wantTotal {
+			t.Fatalf("?%s: records = %d, total = %d, want %d and %d", tc.query, len(got), total, tc.want, tc.wantTotal)
 		}
 		if len(got) > 0 && (got[0].ErrorCode == nil && tc.wantError != "" || got[0].ErrorCode != nil && *got[0].ErrorCode != tc.wantError) {
 			t.Fatalf("?%s: first record = %+v, want error %q", tc.query, got[0], tc.wantError)

@@ -67,6 +67,20 @@ func (s *Service) ListRoles(ctx context.Context, service string) ([]Role, error)
 	return s.repo.ListRoles(ctx, s.txm.GetPool(), strings.TrimSpace(service))
 }
 
+func (s *Service) GetRole(ctx context.Context, roleID uuid.UUID) (*Role, map[constants.KeyStatus]int, error) {
+	role, err := s.repo.GetRoleByID(ctx, s.txm.GetPool(), roleID)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	counts, err := s.repo.CountRoleKeys(ctx, s.txm.GetPool(), role.ID)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return role, counts, nil
+}
+
 func (s *Service) UpdatePolicy(ctx context.Context, roleID uuid.UUID, raw json.RawMessage) (*Role, error) {
 	role, err := s.repo.GetRoleByID(ctx, s.txm.GetPool(), roleID)
 	if err != nil {

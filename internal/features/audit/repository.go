@@ -45,7 +45,8 @@ func (r *Repository) CreateSigningRecord(ctx context.Context, tx db.DBTX, record
 	return nil
 }
 
-func (r *Repository) ListSigningRecords(ctx context.Context, tx db.DBTX, filter ListSigningFilter) ([]SigningRecord, error) {
+// signingWhere builds WHERE of ListSigningRecords and CountSigningRecords over signing_audit a LEFT JOIN service_clients c.
+func signingWhere(filter ListSigningFilter) (string, []any) {
 	conditions := []string{"TRUE"}
 	args := []any{}
 	add := func(condition string, value any) {
@@ -86,6 +87,30 @@ func (r *Repository) ListSigningRecords(ctx context.Context, tx db.DBTX, filter 
 		add("a.created_at < $%d", filter.To.UTC())
 	}
 
+	return strings.Join(conditions, " AND "), args
+}
+
+func (r *Repository) CountSigningRecords(ctx context.Context, tx db.DBTX, filter ListSigningFilter) (int64, error) {
+	where, args := signingWhere(filter)
+
+	var total int64
+	if err := tx.QueryRow(ctx, `
+		SELECT 
+			COUNT(*)
+		FROM 
+			signing_audit a
+		LEFT JOIN service_clients c ON c.id = a.service_client_id
+		WHERE `+where,
+		args...,
+	).Scan(&total); err != nil {
+		return 0, fmt.Errorf("count signing audit: %w", err)
+	}
+
+	return total, nil
+}
+
+func (r *Repository) ListSigningRecords(ctx context.Context, tx db.DBTX, filter ListSigningFilter) ([]SigningRecord, error) {
+	where, args := signingWhere(filter)
 	args = append(args, filter.Limit, filter.Offset)
 
 	rows, err := tx.Query(ctx, `
@@ -102,7 +127,7 @@ func (r *Repository) ListSigningRecords(ctx context.Context, tx db.DBTX, filter 
 		FROM 
 			signing_audit a
 		LEFT JOIN service_clients c ON c.id = a.service_client_id
-		WHERE `+strings.Join(conditions, " AND ")+`
+		WHERE `+where+`
 		ORDER BY a.created_at DESC, a.id DESC
 		LIMIT $`+strconv.Itoa(len(args)-1)+` OFFSET $`+strconv.Itoa(len(args)),
 		args...,

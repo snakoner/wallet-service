@@ -29,6 +29,15 @@ type SigningRecordResponse struct {
 	ErrorCode       *string   `json:"error_code,omitempty"`
 }
 
+type SigningPageResponse struct {
+	Records []SigningRecordResponse `json:"records"`
+	Total   int64                   `json:"total"`
+}
+
+func NewSigningPageResponse(records []SigningRecord, total int64) SigningPageResponse {
+	return SigningPageResponse{Records: NewSigningRecordsResponse(records), Total: total}
+}
+
 func NewSigningRecordsResponse(records []SigningRecord) []SigningRecordResponse {
 	resp := make([]SigningRecordResponse, len(records))
 	for i, record := range records {

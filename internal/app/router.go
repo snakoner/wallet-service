@@ -39,12 +39,14 @@ func NewRouter(
 		{
 			admin.POST("/roles", handlers.Admin.CreateRole)
 			admin.GET("/roles", handlers.Admin.ListRoles)
+			admin.GET("/roles/:id", handlers.Admin.GetRole)
 			admin.PUT("/roles/:id/policy", handlers.Admin.UpdatePolicy)
 			admin.POST("/roles/:id/keys", handlers.Admin.CreateKey)
 			admin.POST("/roles/:id/keys/import", handlers.Admin.ImportKey)
 			admin.GET("/roles/:id/keys", handlers.Admin.ListRoleKeys)
 
 			admin.GET("/keys", handlers.Admin.ListKeys)
+			admin.GET("/keys/:id", handlers.Admin.GetKey)
 			admin.POST("/keys/:id/rotate", handlers.Admin.RotateKey)
 			admin.POST("/keys/:id/activate", handlers.Admin.ActivateKey)
 			admin.POST("/keys/:id/revoke", handlers.Admin.RevokeKey)

@@ -39,8 +39,12 @@ func TestAdminListRoleKeys(t *testing.T) {
 	roleID := uuid.New()
 	svc := &adminServiceStub{}
 	w := doAdmin(t, svc, http.MethodGet, "/api/v1/admin/roles/"+roleID.String()+"/keys", "")
-	if w.Code != http.StatusOK || svc.roleID != roleID || !strings.Contains(w.Body.String(), "TAddr") || strings.Contains(w.Body.String(), "cipher") {
-		t.Fatalf("code = %d, body = %s", w.Code, w.Body)
+	if w.Code != http.StatusOK || svc.roleID != roleID || svc.offset != 0 || svc.limit != 100 || !strings.Contains(w.Body.String(), `"keys":[{`) || !strings.Contains(w.Body.String(), "TAddr") || !strings.Contains(w.Body.String(), `"total":7`) || strings.Contains(w.Body.String(), "cipher") {
+		t.Fatalf("code = %d, offset = %d, limit = %d, body = %s", w.Code, svc.offset, svc.limit, w.Body)
+	}
+
+	if w := doAdmin(t, svc, http.MethodGet, "/api/v1/admin/roles/"+roleID.String()+"/keys?offset=50&limit=10", ""); w.Code != http.StatusOK || svc.offset != 50 || svc.limit != 10 {
+		t.Fatalf("pagination: code = %d, offset = %d, limit = %d", w.Code, svc.offset, svc.limit)
 	}
 
 	if w := doAdmin(t, &adminServiceStub{err: ErrRoleNotFound}, http.MethodGet, "/api/v1/admin/roles/"+roleID.String()+"/keys", ""); w.Code != http.StatusNotFound {
@@ -50,14 +54,14 @@ func TestAdminListRoleKeys(t *testing.T) {
 
 func TestAdminListKeys(t *testing.T) {
 	svc := &adminServiceStub{}
-	w := doAdmin(t, svc, http.MethodGet, "/api/v1/admin/keys?service=exchange&purpose=executor&label=&network=ethereum&status=active&external_ref=o-1&offset=20&limit=10", "")
-	if w.Code != http.StatusOK || strings.Contains(w.Body.String(), "secret") || !strings.Contains(w.Body.String(), `"address":"0xA"`) {
+	w := doAdmin(t, svc, http.MethodGet, "/api/v1/admin/keys?service=exchange&purpose=executor&label=&network=ethereum&status=active&external_ref=o-1&address=0xa&leased=true&offset=20&limit=10", "")
+	if w.Code != http.StatusOK || strings.Contains(w.Body.String(), "secret") || !strings.Contains(w.Body.String(), `"keys":[{`) || !strings.Contains(w.Body.String(), `"address":"0xA"`) || !strings.Contains(w.Body.String(), `"total":42`) {
 		t.Fatalf("code = %d, body = %s", w.Code, w.Body)
 	}
 	f := svc.keysFilter
 	if f.Service == nil || *f.Service != "exchange" || f.Purpose == nil || *f.Purpose != "executor" || f.Label == nil || *f.Label != "" ||
 		f.Network == nil || *f.Network != constants.NetworkEthereum || f.Status == nil || *f.Status != constants.KeyStatusActive ||
-		f.ExternalRef == nil || *f.ExternalRef != "o-1" || f.Offset != 20 || f.Limit != 10 {
+		f.ExternalRef == nil || *f.ExternalRef != "o-1" || f.Address == nil || *f.Address != "0xa" || f.Leased == nil || !*f.Leased || f.Offset != 20 || f.Limit != 10 {
 		t.Fatalf("filter = %+v", f)
 	}
 
@@ -71,7 +75,7 @@ func TestAdminListKeys(t *testing.T) {
 		t.Fatalf("out of range pagination: code = %d, filter = %+v", w.Code, svc.keysFilter)
 	}
 
-	for name, query := range map[string]string{"bad network": "?network=btc", "bad status": "?status=deleted"} {
+	for name, query := range map[string]string{"bad network": "?network=btc", "bad status": "?status=deleted", "bad leased": "?leased=yes"} {
 		t.Run(name, func(t *testing.T) {
 			if w := doAdmin(t, &adminServiceStub{}, http.MethodGet, "/api/v1/admin/keys"+query, ""); w.Code != http.StatusBadRequest {
 				t.Fatalf("code = %d, body = %s", w.Code, w.Body)
@@ -116,5 +120,23 @@ func TestAdminImportKey(t *testing.T) {
 	}
 	if w := doAdmin(t, &adminServiceStub{err: ErrKeyExists}, http.MethodPost, "/api/v1/admin/roles/"+roleID.String()+"/keys/import", `{"private_key":"0xabc"}`); w.Code != http.StatusConflict {
 		t.Fatalf("exists: code = %d", w.Code)
+	}
+}
+
+func TestAdminGetKey(t *testing.T) {
+	keyID := uuid.New()
+	svc := &adminServiceStub{}
+	w := doAdmin(t, svc, http.MethodGet, "/api/v1/admin/keys/"+keyID.String(), "")
+	body := w.Body.String()
+	if w.Code != http.StatusOK || svc.keyID != keyID || !strings.Contains(body, `"address":"0xA"`) || !strings.Contains(body, `"kek_version":2`) ||
+		!strings.Contains(body, `"lease_active":true`) || !strings.Contains(body, `"lease_id"`) || !strings.Contains(body, `"policy":{"version":1}`) || strings.Contains(body, "secret") {
+		t.Fatalf("code = %d, body = %s", w.Code, body)
+	}
+
+	if w := doAdmin(t, &adminServiceStub{}, http.MethodGet, "/api/v1/admin/keys/abc", ""); w.Code != http.StatusNotFound {
+		t.Fatalf("bad id: code = %d", w.Code)
+	}
+	if w := doAdmin(t, &adminServiceStub{err: ErrKeyNotFound}, http.MethodGet, "/api/v1/admin/keys/"+keyID.String(), ""); w.Code != http.StatusNotFound {
+		t.Fatalf("not found: code = %d", w.Code)
 	}
 }

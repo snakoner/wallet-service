@@ -93,10 +93,7 @@ const docTemplate = `{
                                     "type": "object",
                                     "properties": {
                                         "data": {
-                                            "type": "array",
-                                            "items": {
-                                                "$ref": "#/definitions/audit.SigningRecordResponse"
-                                            }
+                                            "$ref": "#/definitions/audit.SigningPageResponse"
                                         }
                                     }
                                 }
@@ -167,6 +164,18 @@ const docTemplate = `{
                         "in": "query"
                     },
                     {
+                        "type": "string",
+                        "description": "Key address, case-insensitive",
+                        "name": "address",
+                        "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "true - under live lease, false - free",
+                        "name": "leased",
+                        "in": "query"
+                    },
+                    {
                         "type": "integer",
                         "description": "Keys to skip, default 0",
                         "name": "offset",
@@ -191,10 +200,7 @@ const docTemplate = `{
                                     "type": "object",
                                     "properties": {
                                         "data": {
-                                            "type": "array",
-                                            "items": {
-                                                "$ref": "#/definitions/key_storage.KeyResponse"
-                                            }
+                                            "$ref": "#/definitions/key_storage.KeysPageResponse"
                                         }
                                     }
                                 }
@@ -203,6 +209,52 @@ const docTemplate = `{
                     },
                     "400": {
                         "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httputil.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/keys/{id}": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Key card: key of any service with lease, KEK version, timestamps and policy of role",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Key id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/httputil.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/key_storage.KeyDetailsResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
                         "schema": {
                             "$ref": "#/definitions/httputil.ErrorResponse"
                         }
@@ -608,7 +660,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/admin/roles/{id}/keys": {
+        "/api/v1/admin/roles/{id}": {
             "get": {
                 "produces": [
                     "application/json"
@@ -616,7 +668,7 @@ const docTemplate = `{
                 "tags": [
                     "admin"
                 ],
-                "summary": "List keys of role",
+                "summary": "Role card: role with policy and number of keys by status",
                 "parameters": [
                     {
                         "type": "string",
@@ -638,10 +690,66 @@ const docTemplate = `{
                                     "type": "object",
                                     "properties": {
                                         "data": {
-                                            "type": "array",
-                                            "items": {
-                                                "$ref": "#/definitions/key_storage.KeyResponse"
-                                            }
+                                            "$ref": "#/definitions/key_storage.RoleDetailsResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httputil.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/roles/{id}/keys": {
+            "get": {
+                "description": "Newest first.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "List keys of role",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Role id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Keys to skip, default 0",
+                        "name": "offset",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Max keys, default 100, max 1000",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/httputil.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/key_storage.KeysPageResponse"
                                         }
                                     }
                                 }
@@ -1568,6 +1676,20 @@ const docTemplate = `{
         }
     },
     "definitions": {
+        "audit.SigningPageResponse": {
+            "type": "object",
+            "properties": {
+                "records": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/audit.SigningRecordResponse"
+                    }
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
         "audit.SigningRecordResponse": {
             "type": "object",
             "properties": {
@@ -1775,6 +1897,75 @@ const docTemplate = `{
                 }
             }
         },
+        "key_storage.KeyDetailsResponse": {
+            "type": "object",
+            "properties": {
+                "address": {
+                    "type": "string"
+                },
+                "alias": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "external_ref": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "kek_version": {
+                    "type": "integer"
+                },
+                "kind": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "lease_active": {
+                    "type": "boolean"
+                },
+                "lease_id": {
+                    "type": "string"
+                },
+                "lease_owner": {
+                    "type": "string"
+                },
+                "leased_until": {
+                    "type": "string"
+                },
+                "network": {
+                    "type": "string"
+                },
+                "policy": {
+                    "description": "of role",
+                    "type": "object"
+                },
+                "purpose": {
+                    "type": "string"
+                },
+                "replaced_by": {
+                    "type": "string"
+                },
+                "revoked_at": {
+                    "type": "string"
+                },
+                "rotated_at": {
+                    "type": "string"
+                },
+                "service": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
         "key_storage.KeyResponse": {
             "type": "object",
             "properties": {
@@ -1803,7 +1994,6 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "leased_until": {
-                    "description": "new key after rotation",
                     "type": "string"
                 },
                 "network": {
@@ -1823,6 +2013,20 @@ const docTemplate = `{
                 }
             }
         },
+        "key_storage.KeysPageResponse": {
+            "type": "object",
+            "properties": {
+                "keys": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/key_storage.KeyResponse"
+                    }
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
         "key_storage.LeaseResponse": {
             "type": "object",
             "properties": {
@@ -1833,6 +2037,42 @@ const docTemplate = `{
                     "$ref": "#/definitions/key_storage.KeyResponse"
                 },
                 "lease_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "key_storage.RoleDetailsResponse": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "key_counts": {
+                    "description": "by key status, every status present",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "integer"
+                    }
+                },
+                "kind": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "network": {
+                    "type": "string"
+                },
+                "policy": {
+                    "type": "object"
+                },
+                "purpose": {
+                    "type": "string"
+                },
+                "service": {
                     "type": "string"
                 }
             }

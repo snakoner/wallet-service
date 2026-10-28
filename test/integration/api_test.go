@@ -294,12 +294,15 @@ func TestAdminAPI(t *testing.T) {
 		}
 	}
 
-	var keys []struct {
-		Service string `json:"service"`
-		Address string `json:"address"`
+	var page struct {
+		Keys []struct {
+			Service string `json:"service"`
+			Address string `json:"address"`
+		} `json:"keys"`
+		Total int64 `json:"total"`
 	}
-	if status, _ := e.call(http.MethodGet, "/api/v1/admin/keys?service="+e.service+"&network=ethereum&status=active", "", nil, &keys); status != http.StatusOK || len(keys) != 2 || keys[0].Service != e.service {
-		t.Fatalf("list keys: status = %d, keys = %+v", status, keys)
+	if status, _ := e.call(http.MethodGet, "/api/v1/admin/keys?service="+e.service+"&network=ethereum&status=active&limit=1", "", nil, &page); status != http.StatusOK || len(page.Keys) != 1 || page.Total != 2 || page.Keys[0].Service != e.service {
+		t.Fatalf("list keys: status = %d, page = %+v", status, page)
 	}
 
 	if status, res := e.call(http.MethodPut, "/api/v1/admin/roles/"+role.ID.String()+"/policy", "", map[string]any{"policy": map[string]any{"version": 1, "rules": []any{map[string]any{"op": "token"}}}}, nil); status != http.StatusBadRequest || res.Error.Code != "INVALID_PARAMS" {

@@ -21,13 +21,13 @@ type adminServiceStub struct {
 	err    error
 }
 
-func (s *adminServiceStub) ListSigning(_ context.Context, filter ListSigningFilter) ([]SigningRecord, error) {
+func (s *adminServiceStub) ListSigning(_ context.Context, filter ListSigningFilter) ([]SigningRecord, int64, error) {
 	s.filter = filter
 	if s.err != nil {
-		return nil, s.err
+		return nil, 0, s.err
 	}
 	hash := "0xhash"
-	return []SigningRecord{{ID: uuid.New(), Service: "exchange", Network: constants.NetworkTron, RawTx: []byte{0xab, 0xcd}, TxHash: &hash}}, nil
+	return []SigningRecord{{ID: uuid.New(), Service: "exchange", Network: constants.NetworkTron, RawTx: []byte{0xab, 0xcd}, TxHash: &hash}}, 42, nil
 }
 
 func doAudit(svc *adminServiceStub, query string) *httptest.ResponseRecorder {
@@ -43,7 +43,7 @@ func TestAdminListSigning(t *testing.T) {
 	keyID := uuid.New()
 	svc := &adminServiceStub{}
 	w := doAudit(svc, "?key_id="+keyID.String()+"&service=exchange&tx_hash=0xh&error_code=POLICY_VIOLATION&failed=true&from=2026-10-01T00:00:00Z&to=2026-10-02T03:00:00%2B03:00&offset=20&limit=10")
-	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"raw_tx":"0xabcd"`) || !strings.Contains(w.Body.String(), `"network":"tron"`) || !strings.Contains(w.Body.String(), `"tx_hash":"0xhash"`) {
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"records":[{`) || !strings.Contains(w.Body.String(), `"total":42`) || !strings.Contains(w.Body.String(), `"raw_tx":"0xabcd"`) || !strings.Contains(w.Body.String(), `"network":"tron"`) || !strings.Contains(w.Body.String(), `"tx_hash":"0xhash"`) {
 		t.Fatalf("code = %d, body = %s", w.Code, w.Body)
 	}
 	f := svc.filter

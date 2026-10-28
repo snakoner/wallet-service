@@ -54,10 +54,13 @@ func (h *AdminHandler) CreateKey(c *gin.Context) {
 
 // ListRoleKeys godoc
 // @Summary     List keys of role
+// @Description Newest first.
 // @Tags        admin
 // @Produce     json
-// @Param       id path string true "Role id"
-// @Success     200 {object} httputil.Response{data=[]key_storage.KeyResponse}
+// @Param       id     path  string true  "Role id"
+// @Param       offset query int    false "Keys to skip, default 0"
+// @Param       limit  query int    false "Max keys, default 100, max 1000"
+// @Success     200 {object} httputil.Response{data=key_storage.KeysPageResponse}
 // @Failure     404 {object} httputil.ErrorResponse
 // @Router      /api/v1/admin/roles/{id}/keys [get]
 func (h *AdminHandler) ListRoleKeys(c *gin.Context) {
@@ -67,14 +70,40 @@ func (h *AdminHandler) ListRoleKeys(c *gin.Context) {
 		return
 	}
 
-	keys, err := h.service.ListRoleKeys(c.Request.Context(), roleID)
+	offset, limit := httputil.ParsePagination(c)
+	keys, total, err := h.service.ListRoleKeys(c.Request.Context(), roleID, offset, limit)
 	if err != nil {
 		h.log.Error().Err(err).Str("role_id", roleID.String()).Msg("admin list role keys")
 		httputil.Fail(c, err)
 		return
 	}
 
-	httputil.OK(c, NewKeysResponse(keys))
+	httputil.OK(c, NewKeysPageResponse(keys, total))
+}
+
+// GetKey godoc
+// @Summary     Key card: key of any service with lease, KEK version, timestamps and policy of role
+// @Tags        admin
+// @Produce     json
+// @Param       id path string true "Key id"
+// @Success     200 {object} httputil.Response{data=key_storage.KeyDetailsResponse}
+// @Failure     404 {object} httputil.ErrorResponse
+// @Router      /api/v1/admin/keys/{id} [get]
+func (h *AdminHandler) GetKey(c *gin.Context) {
+	keyID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		httputil.Fail(c, ErrKeyNotFound)
+		return
+	}
+
+	key, err := h.service.GetKeyByID(c.Request.Context(), keyID)
+	if err != nil {
+		h.log.Error().Err(err).Str("key_id", keyID.String()).Msg("admin get key")
+		httputil.Fail(c, err)
+		return
+	}
+
+	httputil.OK(c, NewKeyDetailsResponse(key))
 }
 
 // ListKeys godoc
@@ -88,9 +117,11 @@ func (h *AdminHandler) ListRoleKeys(c *gin.Context) {
 // @Param       network      query string false "Network: ethereum, tron, arbitrum"
 // @Param       status       query string false "Key status" Enums(active, rotating, pending, disabled, revoked)
 // @Param       external_ref query string false "Order id of deposit key"
+// @Param       address      query string false "Key address, case-insensitive"
+// @Param       leased       query bool   false "true - under live lease, false - free"
 // @Param       offset       query int    false "Keys to skip, default 0"
 // @Param       limit        query int    false "Max keys, default 100, max 1000"
-// @Success     200 {object} httputil.Response{data=[]key_storage.KeyResponse}
+// @Success     200 {object} httputil.Response{data=key_storage.KeysPageResponse}
 // @Failure     400 {object} httputil.ErrorResponse
 // @Router      /api/v1/admin/keys [get]
 func (h *AdminHandler) ListKeys(c *gin.Context) {
@@ -106,6 +137,8 @@ func (h *AdminHandler) ListKeys(c *gin.Context) {
 		Purpose:     query.Purpose,
 		Label:       query.Label,
 		ExternalRef: query.ExternalRef,
+		Address:     query.Address,
+		Leased:      query.Leased,
 		Offset:      offset,
 		Limit:       limit,
 	}
@@ -118,14 +151,14 @@ func (h *AdminHandler) ListKeys(c *gin.Context) {
 		filter.Status = &status
 	}
 
-	keys, err := h.service.ListKeys(c.Request.Context(), filter)
+	keys, total, err := h.service.ListKeys(c.Request.Context(), filter)
 	if err != nil {
 		h.log.Error().Err(err).Msg("admin list keys")
 		httputil.Fail(c, err)
 		return
 	}
 
-	httputil.OK(c, NewKeysResponse(keys))
+	httputil.OK(c, NewKeysPageResponse(keys, total))
 }
 
 // RotateKey godoc

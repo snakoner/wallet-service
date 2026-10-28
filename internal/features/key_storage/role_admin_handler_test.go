@@ -67,3 +67,20 @@ func TestAdminUpdatePolicy(t *testing.T) {
 		t.Fatalf("not found: code = %d", w.Code)
 	}
 }
+
+func TestAdminGetRole(t *testing.T) {
+	roleID := uuid.New()
+	svc := &adminServiceStub{}
+	w := doAdmin(t, svc, http.MethodGet, "/api/v1/admin/roles/"+roleID.String(), "")
+	if w.Code != http.StatusOK || svc.roleID != roleID ||
+		!strings.Contains(w.Body.String(), `"key_counts":{"active":2,"disabled":0,"pending":0,"revoked":1,"rotating":0}`) {
+		t.Fatalf("code = %d, body = %s", w.Code, w.Body)
+	}
+
+	if w := doAdmin(t, &adminServiceStub{}, http.MethodGet, "/api/v1/admin/roles/abc", ""); w.Code != http.StatusNotFound {
+		t.Fatalf("bad id: code = %d", w.Code)
+	}
+	if w := doAdmin(t, &adminServiceStub{err: ErrRoleNotFound}, http.MethodGet, "/api/v1/admin/roles/"+roleID.String(), ""); w.Code != http.StatusNotFound {
+		t.Fatalf("not found: code = %d", w.Code)
+	}
+}

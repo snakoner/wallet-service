@@ -69,6 +69,31 @@ func (h *AdminHandler) ListRoles(c *gin.Context) {
 	httputil.OK(c, NewRolesResponse(roles))
 }
 
+// GetRole godoc
+// @Summary     Role card: role with policy and number of keys by status
+// @Tags        admin
+// @Produce     json
+// @Param       id path string true "Role id"
+// @Success     200 {object} httputil.Response{data=key_storage.RoleDetailsResponse}
+// @Failure     404 {object} httputil.ErrorResponse
+// @Router      /api/v1/admin/roles/{id} [get]
+func (h *AdminHandler) GetRole(c *gin.Context) {
+	roleID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		httputil.Fail(c, ErrRoleNotFound)
+		return
+	}
+
+	role, counts, err := h.service.GetRole(c.Request.Context(), roleID)
+	if err != nil {
+		h.log.Error().Err(err).Str("role_id", roleID.String()).Msg("admin get role")
+		httputil.Fail(c, err)
+		return
+	}
+
+	httputil.OK(c, NewRoleDetailsResponse(role, counts))
+}
+
 // UpdatePolicy godoc
 // @Summary     Replace signing policy of role
 // @Description Applies to all keys of role. Format is described in docs/POLICY.md. Empty rules deny signing.

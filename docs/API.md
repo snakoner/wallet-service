@@ -183,6 +183,12 @@ curl -s -X POST http://localhost:8080/api/v1/roles/deposit/deposit-key \
 
 **Только вне production** (в production маршруты не регистрируются). **Авторизации пока нет** — будет SSO.
 
+Списки с `offset`/`limit` (`/admin/keys`, `/admin/roles/{id}/keys`, `/admin/audit`) отдают объект: страницу и `total` — сколько всего объектов подходит под фильтры без учёта `offset`/`limit`:
+
+```json
+{"success": true, "data": {"keys": [{…}], "total": 1520}}
+```
+
 ### `POST /api/v1/admin/roles` — создать роль
 
 ```json
@@ -203,6 +209,20 @@ curl -s -X POST http://localhost:8080/api/v1/roles/deposit/deposit-key \
 
 Без `service` — роли всех сервисов.
 
+### `GET /api/v1/admin/roles/{id}` — карточка роли
+
+Роль с политикой и числом ключей по статусам; в `key_counts` есть все статусы, даже с нулём.
+
+```json
+{"success": true, "data": {
+  "id": "…", "service": "exchange", "purpose": "deposit", "label": "", "network": "ethereum", "kind": "deposit",
+  "policy": {}, "created_at": "…",
+  "key_counts": {"active": 1520, "rotating": 0, "pending": 0, "disabled": 0, "revoked": 3}
+}}
+```
+
+Ошибка: `ROLE_NOT_FOUND` (404, в т.ч. id не uuid).
+
 ### `POST /api/v1/admin/roles/{id}/keys` — сгенерировать ключ роли
 
 Тело необязательное: `{"alias":"…","external_ref":"order-1"}`.
@@ -212,13 +232,26 @@ curl -s -X POST http://localhost:8080/api/v1/roles/deposit/deposit-key \
 - `single`/`pool` с `external_ref` → `INVALID_PARAMS` (400);
 - нет роли → `ROLE_NOT_FOUND` (404).
 
-### `GET /api/v1/admin/roles/{id}/keys` — ключи роли
+### `GET /api/v1/admin/roles/{id}/keys?offset=0&limit=100` — ключи роли
 
-Адреса и статусы, без шифротекстов.
+Ответ `{"keys": […], "total": N}`: адреса и статусы, без шифротекстов, от новых к старым; `total` — все ключи роли. `offset` по умолчанию 0, `limit` по умолчанию 100, максимум 1000 (разбираются мягко, как у `/admin/keys`). У deposit-роли ключей по одному на заказ, без пагинации их не выгрузить. Ошибка: `ROLE_NOT_FOUND` (404).
+
+### `GET /api/v1/admin/keys/{id}` — карточка ключа
+
+Ключ любого сервиса без шифротекстов: поля из списка ключей плюс
+
+| Поле | |
+|---|---|
+| `kek_version` | версия KEK, которой зашифрован ключ |
+| `lease_id`, `lease_active` | аренда: id и жива ли сейчас (`leased_until` в будущем); `lease_id` остаётся и после истечения |
+| `updated_at`, `rotated_at`, `revoked_at` | время изменений |
+| `policy` | политика роли |
+
+Ошибка: `KEY_NOT_FOUND` (404, в т.ч. id не uuid).
 
 ### `GET /api/v1/admin/keys` — ключи всех сервисов с фильтрами
 
-Все параметры необязательные. Фильтр применяется, только если параметр передан: `?label=` — ключи с пустым label. Ключи от новых к старым, без шифротекстов.
+Все параметры необязательные. Фильтр применяется, только если параметр передан: `?label=` — ключи с пустым label. Ответ `{"keys": […], "total": N}`: ключи от новых к старым, без шифротекстов; `total` — сколько ключей подходит под фильтры.
 
 | Параметр | |
 |---|---|
@@ -226,6 +259,8 @@ curl -s -X POST http://localhost:8080/api/v1/roles/deposit/deposit-key \
 | `network` | `ethereum` / `tron` / `arbitrum` |
 | `status` | `active` / `rotating` / `pending` / `disabled` / `revoked` |
 | `external_ref` | id заказа deposit-ключа |
+| `address` | адрес ключа без учёта регистра: EVM-адрес можно передать в нижнем регистре |
+| `leased` | `true` — под живой арендой, `false` — свободные (зависшие аренды перед `release-lease`) |
 | `offset` | сколько ключей пропустить, по умолчанию 0 |
 | `limit` | по умолчанию 100, максимум 1000 |
 
@@ -235,7 +270,7 @@ curl -s -X POST http://localhost:8080/api/v1/roles/deposit/deposit-key \
 curl -s "http://localhost:8080/api/v1/admin/keys?service=exchange&purpose=executor&network=ethereum&status=active&offset=100&limit=100"
 ```
 
-Ошибки: `VALIDATION_FAILED` (400, неизвестные network/status).
+Ошибки: `VALIDATION_FAILED` (400, неизвестные network/status), `BAD_REQUEST` (400, `leased` не bool).
 
 ### Жизненный цикл ключа
 
@@ -295,15 +330,15 @@ curl -s "http://localhost:8080/api/v1/admin/audit?service=exchange&failed=true&f
 ```
 
 ```json
-{"success": true, "data": [{
+{"success": true, "data": {"records": [{
   "id": "…", "created_at": "2026-10-27T13:00:00Z",
   "service_client_id": "…", "service": "exchange",
   "key_id": "…", "network": "ethereum",
   "raw_tx": "0x…", "error_code": "POLICY_VIOLATION"
-}]}
+}], "total": 37}}
 ```
 
-`raw_tx` — неподписанная транзакция как пришла, hex с `0x`; `tx_hash` есть у подписанных, `error_code` — у отклонённых. Пагинация разбирается мягко, как у `/admin/keys`.
+`raw_tx` — неподписанная транзакция как пришла, hex с `0x`; `tx_hash` есть у подписанных, `error_code` — у отклонённых. `total` — сколько записей подходит под фильтры. Пагинация разбирается мягко, как у `/admin/keys`.
 
 Ошибки: `VALIDATION_FAILED` (400, `key_id` не uuid), `BAD_REQUEST` (400, `from`/`to` не RFC3339, `failed` не bool).
 
@@ -391,7 +426,7 @@ make test-integration   # интеграционные: поднимает docke
 `docker-compose.test.yml` (отдельный compose-проект `wallet-service-test`, порты 15433 / 18090 / 18545): Postgres, миграции up → down → up (проверка down-миграций), приложение и anvil (локальный Ethereum, chain id 31337). Тесты под тегом `integration`, обычный `go test ./...` их не запускает.
 
 - `internal/features/*/repository_integration_test.go` — SQL против настоящего Postgres: уникальности, гонка 20 `CreateKey` в single-роль, `IsServiceAddress`, фильтры `ListKeys`, ротация и параллельные ротации service key.
-- `test/integration` — API end-to-end: авторизация, роли, подпись ETH (legacy и EIP-1559) с отправкой в anvil и проверкой receipt, отказы (политика, chain id, статус ключа, чужой сервис), записи `signing_audit` для подписи и отказов и их чтение через `GET /admin/audit` (фильтры, offset/limit), подпись TRON с восстановлением адреса из подписи, deposit-ключи (повтор и гонка по одному `external_ref`, вывод на газовый кошелёк), admin API, аренда (pool, single, последние 10 секунд, TTL), два «пода» параллельно шлют газ с одного single-ключа под арендой (nonce без повторов и пропусков, все tx в блоках, поды реально конкурировали).
+- `test/integration` — API end-to-end: авторизация, роли, подпись ETH (legacy и EIP-1559) с отправкой в anvil и проверкой receipt, отказы (политика, chain id, статус ключа, чужой сервис), записи `signing_audit` для подписи и отказов и их чтение через `GET /admin/audit` (фильтры, offset/limit), карточки ключа и роли, пагинация ключей роли, фильтры `address` и `leased`, подпись TRON с восстановлением адреса из подписи, deposit-ключи (повтор и гонка по одному `external_ref`, вывод на газовый кошелёк), admin API, аренда (pool, single, последние 10 секунд, TTL), два «пода» параллельно шлют газ с одного single-ключа под арендой (nonce без повторов и пропусков, все tx в блоках, поды реально конкурировали).
 
 ## Ещё не сделано
 

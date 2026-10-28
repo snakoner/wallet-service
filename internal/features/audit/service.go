@@ -13,6 +13,7 @@ import (
 type repository interface {
 	CreateSigningRecord(ctx context.Context, tx db.DBTX, record *SigningRecord) error
 	ListSigningRecords(ctx context.Context, tx db.DBTX, filter ListSigningFilter) ([]SigningRecord, error)
+	CountSigningRecords(ctx context.Context, tx db.DBTX, filter ListSigningFilter) (int64, error)
 }
 
 type Service struct {
@@ -37,6 +38,16 @@ func (s *Service) RecordSigning(ctx context.Context, record *SigningRecord) erro
 	return s.repo.CreateSigningRecord(context.WithoutCancel(ctx), s.txm.GetPool(), record)
 }
 
-func (s *Service) ListSigning(ctx context.Context, filter ListSigningFilter) ([]SigningRecord, error) {
-	return s.repo.ListSigningRecords(ctx, s.txm.GetPool(), filter)
+func (s *Service) ListSigning(ctx context.Context, filter ListSigningFilter) ([]SigningRecord, int64, error) {
+	records, err := s.repo.ListSigningRecords(ctx, s.txm.GetPool(), filter)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	total, err := s.repo.CountSigningRecords(ctx, s.txm.GetPool(), filter)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	return records, total, nil
 }

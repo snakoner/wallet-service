@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/constants"
 )
 
 type CreateRoleRequest struct {
@@ -46,6 +48,20 @@ func NewRoleResponse(role *Role) RoleResponse {
 		Policy:    role.Policy,
 		CreatedAt: role.CreatedAt,
 	}
+}
+
+type RoleDetailsResponse struct {
+	RoleResponse
+	KeyCounts map[string]int `json:"key_counts"` // by key status, every status present
+}
+
+func NewRoleDetailsResponse(role *Role, counts map[constants.KeyStatus]int) RoleDetailsResponse {
+	keyCounts := make(map[string]int, len(constants.KeyStatusStrings))
+	for status, name := range constants.KeyStatusStrings {
+		keyCounts[name] = counts[status]
+	}
+
+	return RoleDetailsResponse{RoleResponse: NewRoleResponse(role), KeyCounts: keyCounts}
 }
 
 func NewRolesResponse(roles []Role) []RoleResponse {

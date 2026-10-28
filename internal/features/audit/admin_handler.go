@@ -11,7 +11,7 @@ import (
 )
 
 type AdminService interface {
-	ListSigning(ctx context.Context, filter ListSigningFilter) ([]SigningRecord, error)
+	ListSigning(ctx context.Context, filter ListSigningFilter) ([]SigningRecord, int64, error)
 }
 
 type AdminHandler struct {
@@ -37,7 +37,7 @@ func NewAdminHandler(service AdminService, log *logger.Logger) *AdminHandler {
 // @Param       to         query string false "Created before, RFC3339"
 // @Param       offset     query int    false "Records to skip, default 0"
 // @Param       limit      query int    false "Max records, default 100, max 1000"
-// @Success     200 {object} httputil.Response{data=[]audit.SigningRecordResponse}
+// @Success     200 {object} httputil.Response{data=audit.SigningPageResponse}
 // @Failure     400 {object} httputil.ErrorResponse
 // @Router      /api/v1/admin/audit [get]
 func (h *AdminHandler) ListSigning(c *gin.Context) {
@@ -63,12 +63,12 @@ func (h *AdminHandler) ListSigning(c *gin.Context) {
 		filter.KeyID, _ = uuid.Parse(query.KeyID)
 	}
 
-	records, err := h.service.ListSigning(c.Request.Context(), filter)
+	records, total, err := h.service.ListSigning(c.Request.Context(), filter)
 	if err != nil {
 		h.log.Error().Err(err).Msg("admin list signing audit")
 		httputil.Fail(c, err)
 		return
 	}
 
-	httputil.OK(c, NewSigningRecordsResponse(records))
+	httputil.OK(c, NewSigningPageResponse(records, total))
 }

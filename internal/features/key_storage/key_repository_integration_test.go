@@ -5,6 +5,7 @@ package key_storage
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -191,8 +192,13 @@ func TestIntegrationListKeys(t *testing.T) {
 	if _, err := pool.Exec(ctx, `UPDATE wallet_keys SET status = $2 WHERE id = $1`, gas.ID, constants.KeyStatusRevoked); err != nil {
 		t.Fatal(err)
 	}
+	lease, err := srv.AcquireLease(ctx, AcquireLeaseParams{Service: service, Purpose: "executor", Label: "atoken", Network: constants.NetworkTron, Owner: "it", TTL: time.Minute})
+	if err != nil {
+		t.Fatal(err)
+	}
 
-	empty, atoken, tron, revoked := "", "atoken", constants.NetworkTron, constants.KeyStatusRevoked
+	empty, atoken, tron, revoked, yes, no := "", "atoken", constants.NetworkTron, constants.KeyStatusRevoked, true, false
+	gasLower, leasedAddress := strings.ToLower(gas.Address), lease.Key.Address
 	for _, tc := range []struct {
 		name   string
 		filter ListKeysFilter
@@ -206,8 +212,14 @@ func TestIntegrationListKeys(t *testing.T) {
 		{"limit", ListKeysFilter{Service: &service, Limit: 1}, 1},
 		{"offset", ListKeysFilter{Service: &service, Offset: 2, Limit: 100}, 1},
 		{"offset past end", ListKeysFilter{Service: &service, Offset: 3, Limit: 100}, 0},
+		{"id", ListKeysFilter{ID: &gas.ID, Limit: 100}, 1},
+		{"role", ListKeysFilter{RoleID: &labeled.ID, Limit: 100}, 2},
+		{"evm address any case", ListKeysFilter{Service: &service, Address: &gasLower, Limit: 100}, 1},
+		{"tron address", ListKeysFilter{Service: &service, Address: &leasedAddress, Limit: 100}, 1},
+		{"leased", ListKeysFilter{Service: &service, Leased: &yes, Limit: 100}, 1},
+		{"not leased", ListKeysFilter{Service: &service, Leased: &no, Limit: 100}, 2},
 	} {
-		keys, err := srv.ListKeys(ctx, tc.filter)
+		keys, _, err := srv.ListKeys(ctx, tc.filter)
 		if err != nil || len(keys) != tc.want {
 			t.Fatalf("%s: keys = %d, err = %v, want %d", tc.name, len(keys), err, tc.want)
 		}
@@ -216,6 +228,30 @@ func TestIntegrationListKeys(t *testing.T) {
 				t.Fatalf("%s: key = %+v", tc.name, key)
 			}
 		}
+	}
+
+	if keys, total, err := srv.ListKeys(ctx, ListKeysFilter{Service: &service, Offset: 2, Limit: 1}); err != nil || len(keys) != 1 || total != 3 {
+		t.Fatalf("total: keys = %d, total = %d, err = %v", len(keys), total, err)
+	}
+	if keys, total, err := srv.ListKeys(ctx, ListKeysFilter{Service: &service, Leased: &yes, Offset: 5, Limit: 10}); err != nil || len(keys) != 0 || total != 1 {
+		t.Fatalf("total past end: keys = %d, total = %d, err = %v", len(keys), total, err)
+	}
+
+	if key, err := srv.GetKeyByID(ctx, lease.Key.ID); err != nil || !key.LeaseActive || key.LeaseID == nil || *key.LeaseID != lease.ID || key.Role.ID != labeled.ID || len(key.KeyCipher) != 0 {
+		t.Fatalf("leased key card = %+v, err = %v", key, err)
+	}
+	if key, err := srv.GetKeyByID(ctx, gas.ID); err != nil || key.LeaseActive || key.KEKVersion != 1 || key.Status != constants.KeyStatusRevoked {
+		t.Fatalf("gas key card = %+v, err = %v", key, err)
+	}
+	if _, err := srv.GetKeyByID(ctx, uuid.New()); !errors.Is(err, ErrKeyNotFound) {
+		t.Fatalf("unknown key: err = %v", err)
+	}
+
+	if _, counts, err := srv.GetRole(ctx, labeled.ID); err != nil || len(counts) != 1 || counts[constants.KeyStatusActive] != 2 {
+		t.Fatalf("labeled role counts = %v, err = %v", counts, err)
+	}
+	if _, counts, err := srv.GetRole(ctx, single.ID); err != nil || len(counts) != 1 || counts[constants.KeyStatusRevoked] != 1 {
+		t.Fatalf("single role counts = %v, err = %v", counts, err)
 	}
 }
 

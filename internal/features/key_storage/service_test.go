@@ -64,6 +64,21 @@ func (r *repoStub) ListRoleKeys(_ context.Context, _ db.DBTX, roleID uuid.UUID) 
 	return keys, nil
 }
 
+func (r *repoStub) CountKeys(ctx context.Context, tx db.DBTX, filter ListKeysFilter) (int64, error) {
+	keys, err := r.ListKeys(ctx, tx, filter)
+	return int64(len(keys)), err
+}
+
+func (r *repoStub) CountRoleKeys(_ context.Context, _ db.DBTX, roleID uuid.UUID) (map[constants.KeyStatus]int, error) {
+	counts := map[constants.KeyStatus]int{}
+	for _, key := range r.keys {
+		if key.RoleID == roleID {
+			counts[key.Status]++
+		}
+	}
+	return counts, nil
+}
+
 func (r *repoStub) UpdateRolePolicy(_ context.Context, _ db.DBTX, id uuid.UUID, policy json.RawMessage) error {
 	for _, role := range r.roles {
 		if role.ID == id {
@@ -88,7 +103,9 @@ func (r *repoStub) ListKeys(_ context.Context, _ db.DBTX, filter ListKeysFilter)
 	r.listFilter = filter
 	keys := []WalletKey{}
 	for _, key := range r.keys {
-		if (filter.Service == nil || key.Role.Service == *filter.Service) &&
+		if (filter.ID == nil || key.ID == *filter.ID) &&
+			(filter.RoleID == nil || key.RoleID == *filter.RoleID) &&
+			(filter.Service == nil || key.Role.Service == *filter.Service) &&
 			(filter.Purpose == nil || key.Role.Purpose == *filter.Purpose) &&
 			(filter.Label == nil || key.Role.Label == *filter.Label) &&
 			(filter.Network == nil || key.Network == *filter.Network) &&

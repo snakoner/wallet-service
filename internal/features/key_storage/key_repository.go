@@ -339,12 +339,20 @@ func (r *Repository) ListRoleKeys(ctx context.Context, tx db.DBTX, roleID uuid.U
 	return keys, nil
 }
 
-func (r *Repository) ListKeys(ctx context.Context, tx db.DBTX, filter ListKeysFilter) ([]WalletKey, error) {
+func keysWhere(filter ListKeysFilter) (string, []any) {
 	conditions := []string{"TRUE"}
 	args := []any{}
 	add := func(condition string, value any) {
 		args = append(args, value)
 		conditions = append(conditions, fmt.Sprintf(condition, len(args)))
+	}
+
+	if filter.ID != nil {
+		add("k.id = $%d", *filter.ID)
+	}
+
+	if filter.RoleID != nil {
+		add("k.role_id = $%d", *filter.RoleID)
 	}
 
 	if filter.Service != nil {
@@ -371,6 +379,43 @@ func (r *Repository) ListKeys(ctx context.Context, tx db.DBTX, filter ListKeysFi
 		add("k.external_ref = $%d", *filter.ExternalRef)
 	}
 
+	if filter.Address != nil {
+		add("lower(k.address) = lower($%d)", *filter.Address)
+	}
+
+	if filter.Leased != nil {
+		leased := "k.lease_id IS NOT NULL AND k.leased_until > " + nowUTC
+		if !*filter.Leased {
+			leased = "NOT (" + leased + ")"
+		}
+
+		conditions = append(conditions, leased)
+	}
+
+	return strings.Join(conditions, " AND "), args
+}
+
+func (r *Repository) CountKeys(ctx context.Context, tx db.DBTX, filter ListKeysFilter) (int64, error) {
+	where, args := keysWhere(filter)
+
+	var total int64
+	if err := tx.QueryRow(ctx, `
+		SELECT 
+			COUNT(*)
+		FROM 
+			wallet_keys k
+		JOIN wallet_roles r ON r.id = k.role_id
+		WHERE `+where,
+		args...,
+	).Scan(&total); err != nil {
+		return 0, fmt.Errorf("count wallet keys: %w", err)
+	}
+
+	return total, nil
+}
+
+func (r *Repository) ListKeys(ctx context.Context, tx db.DBTX, filter ListKeysFilter) ([]WalletKey, error) {
+	where, args := keysWhere(filter)
 	args = append(args, filter.Limit, filter.Offset)
 
 	rows, err := tx.Query(ctx, `
@@ -388,12 +433,14 @@ func (r *Repository) ListKeys(ctx context.Context, tx db.DBTX, filter ListKeysFi
 			k.updated_at,
 			k.rotated_at,
 			k.revoked_at,
+			k.lease_id,
 			k.lease_owner,
-			k.leased_until,`+roleColumns+`
+			k.leased_until,
+			k.lease_id IS NOT NULL AND k.leased_until > `+nowUTC+`,`+roleColumns+`
 		FROM 
 			wallet_keys k
 		JOIN wallet_roles r ON r.id = k.role_id
-		WHERE `+strings.Join(conditions, " AND ")+`
+		WHERE `+where+`
 		ORDER BY k.created_at DESC, k.id
 		LIMIT $`+strconv.Itoa(len(args)-1)+` OFFSET $`+strconv.Itoa(len(args)),
 		args...,
@@ -420,8 +467,10 @@ func (r *Repository) ListKeys(ctx context.Context, tx db.DBTX, filter ListKeysFi
 			&key.UpdatedAt,
 			&key.RotatedAt,
 			&key.RevokedAt,
+			&key.LeaseID,
 			&key.LeaseOwner,
 			&key.LeasedUntil,
+			&key.LeaseActive,
 			&key.Role.ID,
 			&key.Role.Service,
 			&key.Role.Purpose,
@@ -552,4 +601,41 @@ func (r *Repository) SetKeyReplacedBy(ctx context.Context, tx db.DBTX, id uuid.U
 	}
 
 	return nil
+}
+
+func (r *Repository) CountRoleKeys(ctx context.Context, tx db.DBTX, roleID uuid.UUID) (map[constants.KeyStatus]int, error) {
+	rows, err := tx.Query(ctx, `
+		SELECT 
+			status, 
+			count(*)
+		FROM 
+			wallet_keys
+		WHERE 
+			role_id = $1
+		GROUP BY 
+			status`,
+		roleID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("count wallet keys: %w", err)
+	}
+	defer rows.Close()
+
+	counts := map[constants.KeyStatus]int{}
+	for rows.Next() {
+		var (
+			status constants.KeyStatus
+			count  int
+		)
+		if err := rows.Scan(&status, &count); err != nil {
+			return nil, fmt.Errorf("scan wallet keys count: %w", err)
+		}
+
+		counts[status] = count
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate wallet keys count: %w", err)
+	}
+
+	return counts, nil
 }

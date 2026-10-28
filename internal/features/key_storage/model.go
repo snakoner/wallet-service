@@ -37,7 +37,7 @@ type WalletKey struct {
 	LeaseID            *uuid.UUID
 	LeaseOwner         *string
 	LeasedUntil        *time.Time
-	LeaseActive        bool // lease exists and not expired, loaded only for signing
+	LeaseActive        bool // lease exists and not expired, loaded for signing and in lists
 	LeaseEnding        bool // lease expires within 10 seconds: too late to sign with it, loaded only for signing
 	CreatedAt          time.Time
 	UpdatedAt          time.Time
@@ -74,12 +74,16 @@ type ImportKeyParams struct {
 }
 
 type ListKeysFilter struct {
+	ID          *uuid.UUID
+	RoleID      *uuid.UUID
 	Service     *string
 	Purpose     *string
 	Label       *string
 	Network     *constants.Network
 	Status      *constants.KeyStatus
 	ExternalRef *string
+	Address     *string // case-insensitive
+	Leased      *bool   // true - under live lease, false - free
 	Offset      int
 	Limit       int
 }

@@ -14,30 +14,53 @@ import (
 	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/infra/db"
 )
 
-func (s *Service) ListRoleKeys(ctx context.Context, roleID uuid.UUID) ([]WalletKey, error) {
+func (s *Service) ListRoleKeys(ctx context.Context, roleID uuid.UUID, offset, limit int) ([]WalletKey, int64, error) {
 	role, err := s.repo.GetRoleByID(ctx, s.txm.GetPool(), roleID)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
-	keys, err := s.repo.ListRoleKeys(ctx, s.txm.GetPool(), role.ID)
+	keys, total, err := s.ListKeys(ctx, ListKeysFilter{RoleID: &role.ID, Offset: offset, Limit: limit})
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	for i := range keys {
 		keys[i].Role = *role
 	}
 
-	return keys, nil
+	return keys, total, nil
 }
 
 func (s *Service) IsServiceAddress(ctx context.Context, service string, network constants.Network, address, purpose string) (bool, error) {
 	return s.repo.IsServiceAddress(ctx, s.txm.GetPool(), service, network, address, purpose)
 }
 
-func (s *Service) ListKeys(ctx context.Context, filter ListKeysFilter) ([]WalletKey, error) {
-	return s.repo.ListKeys(ctx, s.txm.GetPool(), filter)
+func (s *Service) GetKeyByID(ctx context.Context, keyID uuid.UUID) (*WalletKey, error) {
+	keys, err := s.repo.ListKeys(ctx, s.txm.GetPool(), ListKeysFilter{ID: &keyID, Limit: 1})
+	if err != nil {
+		return nil, err
+	}
+
+	if len(keys) == 0 {
+		return nil, ErrKeyNotFound
+	}
+
+	return &keys[0], nil
+}
+
+func (s *Service) ListKeys(ctx context.Context, filter ListKeysFilter) ([]WalletKey, int64, error) {
+	keys, err := s.repo.ListKeys(ctx, s.txm.GetPool(), filter)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	total, err := s.repo.CountKeys(ctx, s.txm.GetPool(), filter)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	return keys, total, nil
 }
 
 func (s *Service) CreateKey(ctx context.Context, params CreateKeyParams) (*WalletKey, error) {

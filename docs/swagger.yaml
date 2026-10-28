@@ -1,4 +1,13 @@
 definitions:
+  audit.SigningPageResponse:
+    properties:
+      records:
+        items:
+          $ref: '#/definitions/audit.SigningRecordResponse'
+        type: array
+      total:
+        type: integer
+    type: object
   audit.SigningRecordResponse:
     properties:
       created_at:
@@ -139,6 +148,52 @@ definitions:
     required:
     - private_key
     type: object
+  key_storage.KeyDetailsResponse:
+    properties:
+      address:
+        type: string
+      alias:
+        type: string
+      created_at:
+        type: string
+      external_ref:
+        type: string
+      id:
+        type: string
+      kek_version:
+        type: integer
+      kind:
+        type: string
+      label:
+        type: string
+      lease_active:
+        type: boolean
+      lease_id:
+        type: string
+      lease_owner:
+        type: string
+      leased_until:
+        type: string
+      network:
+        type: string
+      policy:
+        description: of role
+        type: object
+      purpose:
+        type: string
+      replaced_by:
+        type: string
+      revoked_at:
+        type: string
+      rotated_at:
+        type: string
+      service:
+        type: string
+      status:
+        type: string
+      updated_at:
+        type: string
+    type: object
   key_storage.KeyResponse:
     properties:
       address:
@@ -158,7 +213,6 @@ definitions:
       lease_owner:
         type: string
       leased_until:
-        description: new key after rotation
         type: string
       network:
         type: string
@@ -171,6 +225,15 @@ definitions:
       status:
         type: string
     type: object
+  key_storage.KeysPageResponse:
+    properties:
+      keys:
+        items:
+          $ref: '#/definitions/key_storage.KeyResponse'
+        type: array
+      total:
+        type: integer
+    type: object
   key_storage.LeaseResponse:
     properties:
       expires_at:
@@ -178,6 +241,30 @@ definitions:
       key:
         $ref: '#/definitions/key_storage.KeyResponse'
       lease_id:
+        type: string
+    type: object
+  key_storage.RoleDetailsResponse:
+    properties:
+      created_at:
+        type: string
+      id:
+        type: string
+      key_counts:
+        additionalProperties:
+          type: integer
+        description: by key status, every status present
+        type: object
+      kind:
+        type: string
+      label:
+        type: string
+      network:
+        type: string
+      policy:
+        type: object
+      purpose:
+        type: string
+      service:
         type: string
     type: object
   key_storage.RoleResponse:
@@ -330,9 +417,7 @@ paths:
             - $ref: '#/definitions/httputil.Response'
             - properties:
                 data:
-                  items:
-                    $ref: '#/definitions/audit.SigningRecordResponse'
-                  type: array
+                  $ref: '#/definitions/audit.SigningPageResponse'
               type: object
         "400":
           description: Bad Request
@@ -376,6 +461,14 @@ paths:
         in: query
         name: external_ref
         type: string
+      - description: Key address, case-insensitive
+        in: query
+        name: address
+        type: string
+      - description: true - under live lease, false - free
+        in: query
+        name: leased
+        type: boolean
       - description: Keys to skip, default 0
         in: query
         name: offset
@@ -394,15 +487,41 @@ paths:
             - $ref: '#/definitions/httputil.Response'
             - properties:
                 data:
-                  items:
-                    $ref: '#/definitions/key_storage.KeyResponse'
-                  type: array
+                  $ref: '#/definitions/key_storage.KeysPageResponse'
               type: object
         "400":
           description: Bad Request
           schema:
             $ref: '#/definitions/httputil.ErrorResponse'
       summary: List keys of all services
+      tags:
+      - admin
+  /api/v1/admin/keys/{id}:
+    get:
+      parameters:
+      - description: Key id
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httputil.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/key_storage.KeyDetailsResponse'
+              type: object
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httputil.ErrorResponse'
+      summary: 'Key card: key of any service with lease, KEK version, timestamps and
+        policy of role'
       tags:
       - admin
   /api/v1/admin/keys/{id}/activate:
@@ -645,7 +764,7 @@ paths:
       summary: Create wallet role of service
       tags:
       - admin
-  /api/v1/admin/roles/{id}/keys:
+  /api/v1/admin/roles/{id}:
     get:
       parameters:
       - description: Role id
@@ -663,9 +782,43 @@ paths:
             - $ref: '#/definitions/httputil.Response'
             - properties:
                 data:
-                  items:
-                    $ref: '#/definitions/key_storage.KeyResponse'
-                  type: array
+                  $ref: '#/definitions/key_storage.RoleDetailsResponse'
+              type: object
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httputil.ErrorResponse'
+      summary: 'Role card: role with policy and number of keys by status'
+      tags:
+      - admin
+  /api/v1/admin/roles/{id}/keys:
+    get:
+      description: Newest first.
+      parameters:
+      - description: Role id
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Keys to skip, default 0
+        in: query
+        name: offset
+        type: integer
+      - description: Max keys, default 100, max 1000
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httputil.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/key_storage.KeysPageResponse'
               type: object
         "404":
           description: Not Found

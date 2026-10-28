@@ -1,6 +1,7 @@
 package key_storage
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/google/uuid"
@@ -13,6 +14,8 @@ type ListKeysQuery struct {
 	Network     string  `form:"network" binding:"omitempty,network"`
 	Status      string  `form:"status" binding:"omitempty,key_status" enums:"active,rotating,pending,disabled,revoked"`
 	ExternalRef *string `form:"external_ref"`
+	Address     *string `form:"address"`
+	Leased      *bool   `form:"leased"`
 }
 
 type GetDepositKeyRequest struct {
@@ -40,7 +43,7 @@ type KeyResponse struct {
 	Status      string     `json:"status"`
 	ReplacedBy  *uuid.UUID `json:"replaced_by,omitempty"`
 	LeaseOwner  *string    `json:"lease_owner,omitempty"`
-	LeasedUntil *time.Time `json:"leased_until,omitempty"` // new key after rotation
+	LeasedUntil *time.Time `json:"leased_until,omitempty"`
 	CreatedAt   time.Time  `json:"created_at"`
 }
 
@@ -72,6 +75,40 @@ type ImportKeyRequest struct {
 type CreateRoleKeyRequest struct {
 	Alias       *string `json:"alias"`
 	ExternalRef *string `json:"external_ref"` // only for deposit role
+}
+
+// KeyDetailsResponse: admin card of key.
+type KeyDetailsResponse struct {
+	KeyResponse
+	KEKVersion  int32           `json:"kek_version"`
+	LeaseID     *uuid.UUID      `json:"lease_id,omitempty"`
+	LeaseActive bool            `json:"lease_active"`
+	UpdatedAt   time.Time       `json:"updated_at"`
+	RotatedAt   *time.Time      `json:"rotated_at,omitempty"`
+	RevokedAt   *time.Time      `json:"revoked_at,omitempty"`
+	Policy      json.RawMessage `json:"policy" swaggertype:"object"` // of role
+}
+
+func NewKeyDetailsResponse(key *WalletKey) KeyDetailsResponse {
+	return KeyDetailsResponse{
+		KeyResponse: NewKeyResponse(key),
+		KEKVersion:  key.KEKVersion,
+		LeaseID:     key.LeaseID,
+		LeaseActive: key.LeaseActive,
+		UpdatedAt:   key.UpdatedAt,
+		RotatedAt:   key.RotatedAt,
+		RevokedAt:   key.RevokedAt,
+		Policy:      key.Role.Policy,
+	}
+}
+
+type KeysPageResponse struct {
+	Keys  []KeyResponse `json:"keys"`
+	Total int64         `json:"total"`
+}
+
+func NewKeysPageResponse(keys []WalletKey, total int64) KeysPageResponse {
+	return KeysPageResponse{Keys: NewKeysResponse(keys), Total: total}
 }
 
 func NewKeysResponse(keys []WalletKey) []KeyResponse {

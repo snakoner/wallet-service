@@ -374,17 +374,17 @@ func TestListKeys(t *testing.T) {
 		}
 	}
 
-	if keys, err := srv.ListKeys(ctx, ListKeysFilter{Offset: 5, Limit: 10}); err != nil || len(keys) != 3 || repo.listFilter.Offset != 5 || repo.listFilter.Limit != 10 {
-		t.Fatalf("all: keys = %d, filter = %+v, err = %v", len(keys), repo.listFilter, err)
+	if keys, total, err := srv.ListKeys(ctx, ListKeysFilter{Offset: 5, Limit: 10}); err != nil || len(keys) != 3 || total != 3 || repo.listFilter.Offset != 5 || repo.listFilter.Limit != 10 {
+		t.Fatalf("all: keys = %d, total = %d, filter = %+v, err = %v", len(keys), total, repo.listFilter, err)
 	}
 
 	tron := constants.NetworkTron
-	if keys, _ := srv.ListKeys(ctx, ListKeysFilter{Network: &tron}); len(keys) != 2 {
-		t.Fatalf("tron: keys = %d", len(keys))
+	if keys, total, _ := srv.ListKeys(ctx, ListKeysFilter{Network: &tron}); len(keys) != 2 || total != 2 {
+		t.Fatalf("tron: keys = %d, total = %d", len(keys), total)
 	}
 
 	label := "single"
-	if keys, _ := srv.ListKeys(ctx, ListKeysFilter{Service: ptr("exchange"), Label: &label}); len(keys) != 1 || keys[0].Role.Kind != constants.RoleKindSingle {
+	if keys, _, _ := srv.ListKeys(ctx, ListKeysFilter{Service: ptr("exchange"), Label: &label}); len(keys) != 1 || keys[0].Role.Kind != constants.RoleKindSingle {
 		t.Fatalf("label: keys = %+v", keys)
 	}
 }

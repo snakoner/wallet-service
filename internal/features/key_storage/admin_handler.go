@@ -6,17 +6,20 @@ import (
 
 	"github.com/google/uuid"
 
+	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/constants"
 	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/infra/logger"
 )
 
 type AdminService interface {
 	CreateRole(ctx context.Context, params CreateRoleParams) (*Role, error)
 	ListRoles(ctx context.Context, service string) ([]Role, error)
+	GetRole(ctx context.Context, roleID uuid.UUID) (*Role, map[constants.KeyStatus]int, error)
 	UpdatePolicy(ctx context.Context, roleID uuid.UUID, raw json.RawMessage) (*Role, error)
 	CreateKey(ctx context.Context, params CreateKeyParams) (*WalletKey, error)
 	ImportKey(ctx context.Context, params ImportKeyParams) (*WalletKey, error)
-	ListRoleKeys(ctx context.Context, roleID uuid.UUID) ([]WalletKey, error)
-	ListKeys(ctx context.Context, filter ListKeysFilter) ([]WalletKey, error)
+	ListRoleKeys(ctx context.Context, roleID uuid.UUID, offset, limit int) ([]WalletKey, int64, error)
+	GetKeyByID(ctx context.Context, keyID uuid.UUID) (*WalletKey, error)
+	ListKeys(ctx context.Context, filter ListKeysFilter) ([]WalletKey, int64, error)
 	RotateKey(ctx context.Context, keyID uuid.UUID) (*WalletKey, error)
 	ActivateKey(ctx context.Context, keyID uuid.UUID) (*WalletKey, error)
 	RevokeKey(ctx context.Context, keyID uuid.UUID) (*WalletKey, error)

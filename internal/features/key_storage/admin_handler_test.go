@@ -25,6 +25,8 @@ type adminServiceStub struct {
 	keyParams    CreateKeyParams
 	service      string
 	roleID       uuid.UUID
+	offset       int
+	limit        int
 	err          error
 }
 
@@ -44,12 +46,12 @@ func (s *adminServiceStub) UpdatePolicy(_ context.Context, roleID uuid.UUID, raw
 	return &Role{ID: roleID, Service: "exchange", Network: constants.NetworkTron, Kind: constants.RoleKindSingle, Policy: raw}, nil
 }
 
-func (s *adminServiceStub) ListKeys(_ context.Context, filter ListKeysFilter) ([]WalletKey, error) {
+func (s *adminServiceStub) ListKeys(_ context.Context, filter ListKeysFilter) ([]WalletKey, int64, error) {
 	s.keysFilter = filter
 	if s.err != nil {
-		return nil, s.err
+		return nil, 0, s.err
 	}
-	return []WalletKey{{ID: uuid.New(), Role: Role{Service: "exchange", Purpose: "executor", Kind: constants.RoleKindPool}, Network: constants.NetworkEthereum, Address: "0xA", Status: constants.KeyStatusActive, KeyCipher: []byte("secret")}}, nil
+	return []WalletKey{{ID: uuid.New(), Role: Role{Service: "exchange", Purpose: "executor", Kind: constants.RoleKindPool}, Network: constants.NetworkEthereum, Address: "0xA", Status: constants.KeyStatusActive, KeyCipher: []byte("secret")}}, 42, nil
 }
 
 func (s *adminServiceStub) keyAction(keyID uuid.UUID, status constants.KeyStatus) (*WalletKey, error) {
@@ -106,12 +108,31 @@ func (s *adminServiceStub) CreateKey(_ context.Context, params CreateKeyParams) 
 	return &WalletKey{ID: uuid.New(), RoleID: params.RoleID, Role: Role{Service: "exchange", Kind: constants.RoleKindDeposit}, Network: constants.NetworkEthereum, Address: "0xAddr", ExternalRef: params.ExternalRef, KeyCipher: []byte("secret")}, nil
 }
 
-func (s *adminServiceStub) ListRoleKeys(_ context.Context, roleID uuid.UUID) ([]WalletKey, error) {
-	s.roleID = roleID
+func (s *adminServiceStub) ListRoleKeys(_ context.Context, roleID uuid.UUID, offset, limit int) ([]WalletKey, int64, error) {
+	s.roleID, s.offset, s.limit = roleID, offset, limit
+	if s.err != nil {
+		return nil, 0, s.err
+	}
+	return []WalletKey{{ID: uuid.New(), RoleID: roleID, Network: constants.NetworkTron, Address: "TAddr", KeyCipher: []byte("secret")}}, 7, nil
+}
+
+func (s *adminServiceStub) GetKeyByID(_ context.Context, keyID uuid.UUID) (*WalletKey, error) {
+	s.keyID = keyID
 	if s.err != nil {
 		return nil, s.err
 	}
-	return []WalletKey{{ID: uuid.New(), RoleID: roleID, Network: constants.NetworkTron, Address: "TAddr", KeyCipher: []byte("secret")}}, nil
+	leaseID := uuid.New()
+	return &WalletKey{ID: keyID, Role: Role{Service: "exchange", Kind: constants.RoleKindSingle, Policy: json.RawMessage(`{"version":1}`)}, Network: constants.NetworkEthereum, Address: "0xA",
+		KEKVersion: 2, LeaseID: &leaseID, LeaseActive: true, KeyCipher: []byte("secret")}, nil
+}
+
+func (s *adminServiceStub) GetRole(_ context.Context, roleID uuid.UUID) (*Role, map[constants.KeyStatus]int, error) {
+	s.roleID = roleID
+	if s.err != nil {
+		return nil, nil, s.err
+	}
+	return &Role{ID: roleID, Service: "exchange", Network: constants.NetworkTron, Kind: constants.RoleKindPool, Policy: json.RawMessage(`{}`)},
+		map[constants.KeyStatus]int{constants.KeyStatusActive: 2, constants.KeyStatusRevoked: 1}, nil
 }
 
 func doAdmin(t *testing.T, svc *adminServiceStub, method, path, body string) *httptest.ResponseRecorder {
@@ -124,11 +145,13 @@ func doAdmin(t *testing.T, svc *adminServiceStub, method, path, body string) *ht
 	r := gin.New()
 	r.POST("/api/v1/admin/roles", h.CreateRole)
 	r.GET("/api/v1/admin/roles", h.ListRoles)
+	r.GET("/api/v1/admin/roles/:id", h.GetRole)
 	r.PUT("/api/v1/admin/roles/:id/policy", h.UpdatePolicy)
 	r.POST("/api/v1/admin/roles/:id/keys", h.CreateKey)
 	r.POST("/api/v1/admin/roles/:id/keys/import", h.ImportKey)
 	r.GET("/api/v1/admin/roles/:id/keys", h.ListRoleKeys)
 	r.GET("/api/v1/admin/keys", h.ListKeys)
+	r.GET("/api/v1/admin/keys/:id", h.GetKey)
 	r.POST("/api/v1/admin/keys/:id/rotate", h.RotateKey)
 	r.POST("/api/v1/admin/keys/:id/activate", h.ActivateKey)
 	r.POST("/api/v1/admin/keys/:id/revoke", h.RevokeKey)
