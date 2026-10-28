@@ -308,6 +308,77 @@ func TestIntegrationActivateDisableNoDeadlock(t *testing.T) {
 	}
 }
 
+func TestIntegrationRevokeActivateRace(t *testing.T) {
+	srv, _ := newIntegrationService(t)
+	ctx := context.Background()
+	service := uniqueService()
+
+	for i := range 30 {
+		role := createIntegrationRole(t, srv, service, fmt.Sprintf("gas_station_%d", i), constants.NetworkEthereum, constants.RoleKindSingle, "")
+		old, err := srv.CreateKey(ctx, CreateKeyParams{RoleID: role.ID})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		replacement, err := srv.RotateKey(ctx, old.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		var (
+			wg    sync.WaitGroup
+			start = make(chan struct{})
+			errs  = make([]error, 2)
+		)
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			<-start
+			_, errs[0] = srv.RevokeKey(ctx, replacement.ID)
+		}()
+		go func() {
+			defer wg.Done()
+			<-start
+			_, errs[1] = srv.ActivateKey(ctx, replacement.ID)
+		}()
+		close(start)
+		wg.Wait()
+
+		if errs[0] != nil {
+			t.Fatalf("iteration %d: revoke: %v", i, errs[0])
+		}
+
+		gotOld, err := srv.GetKeyByID(ctx, old.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		gotReplacement, err := srv.GetKeyByID(ctx, replacement.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if gotReplacement.Status != constants.KeyStatusRevoked {
+			t.Fatalf("iteration %d: replacement status = %s", i, gotReplacement.Status)
+		}
+
+		switch {
+		// revoke first cancels rotation: old key stays active without replacement, activate is rejected
+		case errors.Is(errs[1], ErrInvalidKeyStatus):
+			if gotOld.Status != constants.KeyStatusActive || gotOld.ReplacedBy != nil {
+				t.Fatalf("iteration %d: cancelled rotation: old = %s, replaced by %v", i, gotOld.Status, gotOld.ReplacedBy)
+			}
+		// activate first: revoke hits active replacement, old key is rotating to it
+		case errs[1] == nil:
+			if gotOld.Status != constants.KeyStatusRotating || gotOld.ReplacedBy == nil || *gotOld.ReplacedBy != replacement.ID {
+				t.Fatalf("iteration %d: activated then revoked: old = %s, replaced by %v", i, gotOld.Status, gotOld.ReplacedBy)
+			}
+		default:
+			t.Fatalf("iteration %d: activate: %v", i, errs[1])
+		}
+	}
+}
+
 func TestIntegrationRotation(t *testing.T) {
 	srv, pool := newIntegrationService(t)
 	ctx := context.Background()

@@ -3,11 +3,11 @@ package constants
 type KeyStatus int8
 
 const (
-	KeyStatusActive   KeyStatus = 0 // active
-	KeyStatusRotating KeyStatus = 1 // rotating, but there is unsend txs
-	KeyStatusPending  KeyStatus = 2 // new key after rotating, no gas
-	KeyStatusDisabled KeyStatus = 3 // manually disabled, can become active again
-	KeyStatusRevoked  KeyStatus = 4 // rotating -> revoked
+	KeyStatusActive   KeyStatus = 1 // active
+	KeyStatusRotating KeyStatus = 2 // rotating, but there is unsend txs
+	KeyStatusPending  KeyStatus = 3 // new key after rotating, no gas
+	KeyStatusDisabled KeyStatus = 4 // manually disabled, can become active again
+	KeyStatusRevoked  KeyStatus = 5 // rotating -> revoked
 )
 
 var KeyStatusStrings = map[KeyStatus]string{

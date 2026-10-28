@@ -21,7 +21,7 @@ CREATE TABLE wallet_keys (
     alias VARCHAR(128) DEFAULT NULL, -- optional human-readable name
     address VARCHAR(64) NOT NULL,
     external_ref VARCHAR(128) DEFAULT NULL, -- deposit role: order id
-    status SMALLINT NOT NULL, -- 0 - active, 1 - rotating (has unsent txs), 2 - pending (new key after rotation, no gas), 3 - disabled (can become active again), 4 - revoked
+    status SMALLINT NOT NULL, -- 1 - active, 2 - rotating (has unsent txs), 3 - pending (new key after rotation, no gas), 4 - disabled (can become active again), 5 - revoked
     key_cipher BYTEA NOT NULL,
     dek_cipher BYTEA NOT NULL,
     kek_version INTEGER NOT NULL,
@@ -35,7 +35,7 @@ CREATE TABLE wallet_keys (
     leased_until TIMESTAMP DEFAULT NULL, -- lease expires at, UTC
 
     CONSTRAINT wallet_keys_network_check CHECK (network IN (1, 2, 3)),
-    CONSTRAINT wallet_keys_status_check CHECK (status IN (0, 1, 2, 3, 4)),
+    CONSTRAINT wallet_keys_status_check CHECK (status IN (1, 2, 3, 4, 5)),
     CONSTRAINT wallet_keys_network_address_unique UNIQUE (network, address),
     CONSTRAINT wallet_keys_role_external_ref_unique UNIQUE (role_id, external_ref)
 );

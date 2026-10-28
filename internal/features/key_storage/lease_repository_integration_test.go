@@ -62,6 +62,56 @@ func TestIntegrationLease(t *testing.T) {
 	}
 }
 
+func TestIntegrationLeaseOnlyActiveKeys(t *testing.T) {
+	srv, _ := newIntegrationService(t)
+	ctx := context.Background()
+
+	role := createIntegrationRole(t, srv, uniqueService(), "executor", constants.NetworkEthereum, constants.RoleKindPool, "")
+	keys := make([]*WalletKey, 3)
+	for i := range keys {
+		key, err := srv.CreateKey(ctx, CreateKeyParams{RoleID: role.ID})
+		if err != nil {
+			t.Fatal(err)
+		}
+		keys[i] = key
+	}
+	if _, err := srv.DisableKey(ctx, keys[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := srv.RevokeKey(ctx, keys[1].ID); err != nil {
+		t.Fatal(err)
+	}
+	pending, err := srv.RotateKey(ctx, keys[2].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	params := AcquireLeaseParams{Service: role.Service, Purpose: role.Purpose, Network: role.Network, TTL: time.Minute}
+
+	// disabled, revoked and pending keys are skipped
+	lease, err := srv.AcquireLease(ctx, params)
+	if err != nil || lease.Key.ID != keys[2].ID {
+		t.Fatalf("lease = %+v, err = %v", lease, err)
+	}
+	if _, err := srv.AcquireLease(ctx, params); !errors.Is(err, ErrNoFreeKey) {
+		t.Fatalf("only active key is leased: err = %v", err)
+	}
+
+	// rotating key is skipped too
+	if err := srv.ReleaseLease(ctx, role.Service, lease.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := srv.ActivateKey(ctx, pending.ID); err != nil {
+		t.Fatal(err)
+	}
+	lease, err = srv.AcquireLease(ctx, params)
+	if err != nil || lease.Key.ID != pending.ID {
+		t.Fatalf("lease after activate = %+v, err = %v", lease, err)
+	}
+	if _, err := srv.AcquireLease(ctx, params); !errors.Is(err, ErrNoFreeKey) {
+		t.Fatalf("rotating key is leased: err = %v", err)
+	}
+}
+
 func TestIntegrationLeaseExpiresAndReleases(t *testing.T) {
 	srv, _ := newIntegrationService(t)
 	ctx := context.Background()
