@@ -28,6 +28,7 @@ func openTestPool(t *testing.T) *pgxpool.Pool {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	t.Cleanup(pool.Close)
 
 	return pool

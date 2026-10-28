@@ -22,10 +22,10 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 )
 
-const usage = `gas-station-send - send ETH from gas station via wallet service
+const usage = `ethereum-gas-station-send - send ETH from gas station via wallet service
 
 Usage:
-  gas-station-send -to <address> -amount <eth> [flags]
+  ethereum-gas-station-send -to <address> -amount <eth> [flags]
 
 Flags:
   -to <address>        recipient
@@ -38,7 +38,7 @@ Flags:
   -rpc <url>           ethereum rpc for nonce and fees (env ETH_RPC_URL)
 
 Example:
-  WALLET_SERVICE_KEY=... ETH_RPC_URL=https://... gas-station-send -to 0x... -amount 0.001 -send
+  WALLET_SERVICE_KEY=... ETH_RPC_URL=https://... ethereum-gas-station-send -to 0x... -amount 0.001 -send
 `
 
 type apiResponse struct {
@@ -99,7 +99,7 @@ func (c *walletClient) do(ctx context.Context, method, path string, body, out an
 }
 
 func main() {
-	fs := flag.NewFlagSet("gas-station-send", flag.ExitOnError)
+	fs := flag.NewFlagSet("ethereum-gas-station-send", flag.ExitOnError)
 	fs.Usage = func() { fmt.Fprint(os.Stderr, usage) }
 	to := fs.String("to", "", "")
 	amount := fs.String("amount", "", "")
@@ -134,7 +134,7 @@ func main() {
 			Address string `json:"address"`
 		} `json:"key"`
 	}
-	leaseReq := map[string]string{"network": "ethereum", "label": *label, "owner": "gas-station-send"}
+	leaseReq := map[string]string{"network": "ethereum", "label": *label, "owner": "ethereum-gas-station-send"}
 	if err := wallet.do(ctx, http.MethodPost, "/api/v1/roles/"+url.PathEscape(*purpose)+"/lease", leaseReq, &lease); err != nil {
 		log.Fatalf("lease gas station key: %v", err)
 	}
