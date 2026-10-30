@@ -9,8 +9,6 @@ import (
 
 const rewrapBatch = 100
 
-// RewrapKeys re-encrypts DEK of keys of old KEK versions with current KEK, private key ciphers stay as is.
-// Keys locked by other operations at the moment are skipped: run again while left > 0.
 func (s *Service) RewrapKeys(ctx context.Context) (rewrapped int, left int64, err error) {
 	for {
 		var n int
