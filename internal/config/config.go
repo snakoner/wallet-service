@@ -53,7 +53,6 @@ type KeyStorageConfig struct {
 	OldKEKs    string `env:"KEY_STORAGE_OLD_KEKS"` // version:hex,...: decrypt keys until rewrap-keys moves them to current KEK
 }
 
-// KEKs returns current and old KEKs by version.
 func (c KeyStorageConfig) KEKs() (map[int32][]byte, error) {
 	keks := map[int32][]byte{}
 	add := func(version int32, kekHex string) error {
@@ -61,9 +60,11 @@ func (c KeyStorageConfig) KEKs() (map[int32][]byte, error) {
 		if err != nil || len(kek) != 32 {
 			return fmt.Errorf("kek version %d must be 32 bytes in hex", version)
 		}
+
 		if _, ok := keks[version]; ok || version <= 0 {
 			return fmt.Errorf("kek version %d is duplicate or not positive", version)
 		}
+
 		keks[version] = kek
 		return nil
 	}
@@ -82,6 +83,7 @@ func (c KeyStorageConfig) KEKs() (map[int32][]byte, error) {
 		if !ok || err != nil {
 			return nil, fmt.Errorf("KEY_STORAGE_OLD_KEKS: want version:hex, got %q", versionStr)
 		}
+
 		if err := add(int32(version), kekHex); err != nil {
 			return nil, err
 		}

@@ -22,7 +22,6 @@ func leaseTTL(ttl time.Duration) time.Duration {
 	return min(ttl, maxLeaseTTL)
 }
 
-// AcquireLease gives free active key of own role to one service instance until lease expires or is released.
 func (s *Service) AcquireLease(ctx context.Context, params AcquireLeaseParams) (*Lease, error) {
 	role, err := s.repo.GetRole(ctx, s.txm.GetPool(), params.Service, params.Purpose, params.Label, params.Network)
 	if err != nil {
@@ -57,7 +56,6 @@ func (s *Service) ReleaseLease(ctx context.Context, service string, leaseID uuid
 	return s.repo.ReleaseLease(ctx, s.txm.GetPool(), leaseID, service)
 }
 
-// ForceReleaseLease frees key held by stuck instance.
 func (s *Service) ForceReleaseLease(ctx context.Context, keyID uuid.UUID) error {
 	if err := s.repo.ForceReleaseLease(ctx, s.txm.GetPool(), keyID); err != nil {
 		return err
@@ -68,9 +66,6 @@ func (s *Service) ForceReleaseLease(ctx context.Context, keyID uuid.UUID) error 
 	return nil
 }
 
-// checkLease: active single or pool key signs only with its live lease; any key under live lease signs only with that lease.
-// Lease is not used in its last 10 seconds: signed tx is sent before next instance leases the key and reads the same nonce.
-// Rotating and pending keys are not leased and sign without lease.
 func checkLease(key *WalletKey, leaseID *uuid.UUID) error {
 	switch {
 	case key.Role.Kind != constants.RoleKindDeposit && key.Status == constants.KeyStatusActive && leaseID == nil:

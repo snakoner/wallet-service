@@ -32,7 +32,7 @@ type ClientResponse struct {
 }
 
 type IssuedKeyResponse struct {
-	ServiceKey string          `json:"service_key"` // shown once, only hash is stored
+	ServiceKey string          `json:"service_key"`
 	Client     ClientResponse  `json:"client"`
 	OldClient  *ClientResponse `json:"old_client,omitempty"`
 }

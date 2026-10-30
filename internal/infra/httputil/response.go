@@ -133,19 +133,11 @@ func BadRequestValidation(c *gin.Context, err error) {
 }
 
 var validationMessages = map[string]string{
-	"required":           "is required",
-	"chain_name":         "unsupported chain",
-	"address":            "must be a valid address",
-	"token_name":         "unsupported token",
-	"uuid":               "must be a valid uuid",
-	"amount":             "must be a valid amount",
-	"bank_account":       "must be a valid bank account",
-	"bank_bic":           "must be a valid bank BIC",
-	"kpp":                "must be a valid KPP",
-	"inn":                "must be a valid INN",
-	"redirect_type":      "must be a valid redirect type",
-	"company_support_id": "must be a valid company support ID",
-	"network":            "unsupported network",
+	"required": "is required",
+	"address":  "must be a valid address",
+	"uuid":     "must be a valid uuid",
+	"amount":   "must be a valid amount",
+	"network":  "unsupported network",
 }
 
 func validationMessage(fe validator.FieldError, fieldName string) string {

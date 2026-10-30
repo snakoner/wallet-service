@@ -141,6 +141,7 @@ func newClient(service string) (string, *ServiceClient, error) {
 	if _, err := rand.Read(raw); err != nil {
 		return "", nil, fmt.Errorf("generate service key: %w", err)
 	}
+
 	key := hex.EncodeToString(raw)
 
 	id, err := uuid.NewV7()
