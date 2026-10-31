@@ -4,12 +4,32 @@ import (
 	"context"
 	"fmt"
 
+	adminaudit "gitlab.tve-development.com/backend/gtoken/wallet-service/internal/features/admin_audit"
 	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/infra/db"
 )
 
 const rewrapBatch = 100
 
 func (s *Service) RewrapKeys(ctx context.Context) (rewrapped int, left int64, err error) {
+	if _, _, ok := adminaudit.ActorFrom(ctx); !ok {
+		return 0, 0, adminaudit.ErrNoActor
+	}
+
+	defer func() {
+		details := map[string]any{
+			"kek_version": s.kekVersion,
+			"rewrapped":   rewrapped,
+			"left":        left,
+		}
+		if err != nil {
+			details["error"] = err.Error()
+		}
+
+		if recordErr := s.audit.Record(ctx, s.txm.GetPool(), &adminaudit.Record{Action: adminaudit.ActionKEKRewrap, Details: details}); recordErr != nil && err == nil {
+			err = recordErr
+		}
+	}()
+
 	for {
 		var n int
 		err = s.txm.WithTx(ctx, func(ctx context.Context, tx db.DBTX) error {

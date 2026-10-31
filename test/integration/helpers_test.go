@@ -25,6 +25,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/constants"
+	adminaudit "gitlab.tve-development.com/backend/gtoken/wallet-service/internal/features/admin_audit"
 	keystorage "gitlab.tve-development.com/backend/gtoken/wallet-service/internal/features/key_storage"
 	serviceclient "gitlab.tve-development.com/backend/gtoken/wallet-service/internal/features/service_client"
 	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/infra/db"
@@ -46,6 +47,7 @@ type env struct {
 	service string
 	apiKey  string
 	leases  map[uuid.UUID]uuid.UUID // key id -> lease id taken by sign
+	actor   string                  // X-Admin-Actor of admin API calls, empty - not sent
 	ctx     context.Context
 	tb      testing.TB
 }
@@ -79,20 +81,21 @@ func newEnv(t *testing.T) *env {
 
 	log := logger.New(logger.Config{Level: "error"})
 	txm := db.NewPgxTxManager(pool)
+	audit := adminaudit.NewService(adminaudit.NewRepository(), txm)
 	e := &env{
 		apiURL:  apiURL,
-		keys:    keystorage.NewService(log, keystorage.NewRepository(), txm, keystorage.NewKEKs(map[int32][]byte{1: kek}), 1),
-		clients: serviceclient.NewService(log, serviceclient.NewRepository(), txm),
+		keys:    keystorage.NewService(log, keystorage.NewRepository(), txm, keystorage.NewKEKs(map[int32][]byte{1: kek}), 1, audit),
+		clients: serviceclient.NewService(log, serviceclient.NewRepository(), txm, audit),
 		pool:    pool,
 		eth:     eth,
 		http:    &http.Client{Timeout: 15 * time.Second},
 		service: "it-" + uuid.NewString()[:8],
 		leases:  map[uuid.UUID]uuid.UUID{},
-		ctx:     ctx,
+		ctx:     adminaudit.WithActor(ctx, "integration-test", adminaudit.SourceCLI),
 		tb:      t,
 	}
 
-	e.apiKey, _, err = e.clients.CreateClient(ctx, e.service)
+	e.apiKey, _, err = e.clients.CreateClient(e.ctx, e.service)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -154,6 +157,9 @@ func (e *env) call(method, path, apiKey string, body any, out any) (int, apiResp
 	req.Header.Set("Content-Type", "application/json")
 	if apiKey != "" {
 		req.Header.Set("X-Service-Key", apiKey)
+	}
+	if e.actor != "" {
+		req.Header.Set("X-Admin-Actor", e.actor)
 	}
 
 	resp, err := e.http.Do(req)

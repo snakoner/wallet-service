@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/constants"
+	adminaudit "gitlab.tve-development.com/backend/gtoken/wallet-service/internal/features/admin_audit"
 	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/infra/db"
 )
 
@@ -64,7 +65,7 @@ func (s *Service) ListKeys(ctx context.Context, filter ListKeysFilter) ([]Wallet
 }
 
 func (s *Service) CreateKey(ctx context.Context, params CreateKeyParams) (*WalletKey, error) {
-	return s.addKey(ctx, params.RoleID, params.Alias, params.ExternalRef, generateKey)
+	return s.addKey(ctx, adminaudit.ActionKeyCreate, params.RoleID, params.Alias, params.ExternalRef, generateKey)
 }
 
 func (s *Service) ImportKey(ctx context.Context, params ImportKeyParams) (*WalletKey, error) {
@@ -75,7 +76,7 @@ func (s *Service) ImportKey(ctx context.Context, params ImportKeyParams) (*Walle
 		return nil, ErrInvalidParams.WithMessage("private key must be 32 bytes in hex")
 	}
 
-	return s.addKey(ctx, params.RoleID, params.Alias, params.ExternalRef, func(keys networkKeys) ([]byte, string, error) {
+	return s.addKey(ctx, adminaudit.ActionKeyImport, params.RoleID, params.Alias, params.ExternalRef, func(keys networkKeys) ([]byte, string, error) {
 		address, err := keys.address(string(privateKey))
 		if err != nil {
 			return nil, "", ErrInvalidParams.WithMessage("invalid private key")
@@ -85,8 +86,10 @@ func (s *Service) ImportKey(ctx context.Context, params ImportKeyParams) (*Walle
 	})
 }
 
+// addKey creates active key. Empty action: key is created by service itself, not recorded in admin audit.
 func (s *Service) addKey(
 	ctx context.Context,
+	action string,
 	roleID uuid.UUID,
 	alias, externalRef *string,
 	makeKey func(keys networkKeys) ([]byte, string, error),
@@ -114,7 +117,19 @@ func (s *Service) addKey(
 		}
 
 		key, err = s.insertKey(ctx, tx, role, alias, externalRef, constants.KeyStatusActive, makeKey)
-		return err
+		if err != nil || action == "" {
+			return err
+		}
+
+		return s.recordKey(ctx,
+			tx,
+			action,
+			key,
+			map[string]any{
+				"address":      key.Address,
+				"alias":        key.Alias,
+				"external_ref": key.ExternalRef,
+			})
 	})
 	if err != nil {
 		return nil, err
@@ -226,7 +241,19 @@ func (s *Service) RotateKey(ctx context.Context, keyID uuid.UUID) (*WalletKey, e
 			return err
 		}
 
-		return s.repo.SetKeyReplacedBy(ctx, tx, old.ID, &replacement.ID, replacement.CreatedAt)
+		if err := s.repo.SetKeyReplacedBy(ctx, tx, old.ID, &replacement.ID, replacement.CreatedAt); err != nil {
+			return err
+		}
+
+		return s.recordKey(
+			ctx,
+			tx,
+			adminaudit.ActionKeyRotate,
+			old,
+			map[string]any{
+				"replacement_key_id":  replacement.ID,
+				"replacement_address": replacement.Address,
+			})
 	})
 	if err != nil {
 		return nil, err
@@ -255,10 +282,17 @@ func (s *Service) ActivateKey(ctx context.Context, keyID uuid.UUID) (*WalletKey,
 			return err
 		}
 
+		details := map[string]any{
+			"from": key.Status.String(),
+			"to":   constants.KeyStatusActive.String(),
+		}
 		if old != nil && old.Status == constants.KeyStatusActive {
 			if err := s.repo.UpdateKeyStatus(ctx, tx, old.ID, constants.KeyStatusRotating, now); err != nil {
 				return err
 			}
+
+			details["replaced_key_id"] = old.ID
+			details["replaced_key_status"] = constants.KeyStatusRotating.String()
 		}
 
 		if key.Role.Kind == constants.RoleKindSingle {
@@ -273,7 +307,11 @@ func (s *Service) ActivateKey(ctx context.Context, keyID uuid.UUID) (*WalletKey,
 		}
 
 		key.Status = constants.KeyStatusActive
-		return s.repo.UpdateKeyStatus(ctx, tx, key.ID, constants.KeyStatusActive, now)
+		if err := s.repo.UpdateKeyStatus(ctx, tx, key.ID, constants.KeyStatusActive, now); err != nil {
+			return err
+		}
+
+		return s.recordKey(ctx, tx, adminaudit.ActionKeyActivate, key, details)
 	})
 	if err != nil {
 		return nil, err
@@ -297,6 +335,10 @@ func (s *Service) RevokeKey(ctx context.Context, keyID uuid.UUID) (*WalletKey, e
 		}
 
 		now := time.Now().UTC()
+		details := map[string]any{
+			"from": key.Status.String(),
+			"to":   constants.KeyStatusRevoked.String(),
+		}
 		if key.Status == constants.KeyStatusPending {
 			old, err := s.repo.GetReplacedKeyForUpdate(ctx, tx, key.ID)
 			if err != nil && !errors.Is(err, ErrKeyNotFound) {
@@ -307,11 +349,16 @@ func (s *Service) RevokeKey(ctx context.Context, keyID uuid.UUID) (*WalletKey, e
 				if err := s.repo.SetKeyReplacedBy(ctx, tx, old.ID, nil, now); err != nil {
 					return err
 				}
+				details["replaced_key_id"] = old.ID // rotation of old key is cancelled
 			}
 		}
 
 		key.Status = constants.KeyStatusRevoked
-		return s.repo.UpdateKeyStatus(ctx, tx, key.ID, constants.KeyStatusRevoked, now)
+		if err := s.repo.UpdateKeyStatus(ctx, tx, key.ID, constants.KeyStatusRevoked, now); err != nil {
+			return err
+		}
+
+		return s.recordKey(ctx, tx, adminaudit.ActionKeyRevoke, key, details)
 	})
 	if err != nil {
 		return nil, err
@@ -323,14 +370,14 @@ func (s *Service) RevokeKey(ctx context.Context, keyID uuid.UUID) (*WalletKey, e
 }
 
 func (s *Service) DisableKey(ctx context.Context, keyID uuid.UUID) (*WalletKey, error) {
-	return s.switchKey(ctx, keyID, constants.KeyStatusActive, constants.KeyStatusDisabled, "wallet key disabled")
+	return s.switchKey(ctx, keyID, constants.KeyStatusActive, constants.KeyStatusDisabled, adminaudit.ActionKeyDisable, "wallet key disabled")
 }
 
 func (s *Service) EnableKey(ctx context.Context, keyID uuid.UUID) (*WalletKey, error) {
-	return s.switchKey(ctx, keyID, constants.KeyStatusDisabled, constants.KeyStatusActive, "wallet key enabled")
+	return s.switchKey(ctx, keyID, constants.KeyStatusDisabled, constants.KeyStatusActive, adminaudit.ActionKeyEnable, "wallet key enabled")
 }
 
-func (s *Service) switchKey(ctx context.Context, keyID uuid.UUID, from, to constants.KeyStatus, message string) (*WalletKey, error) {
+func (s *Service) switchKey(ctx context.Context, keyID uuid.UUID, from, to constants.KeyStatus, action, message string) (*WalletKey, error) {
 	var key *WalletKey
 	err := s.txm.WithTx(ctx, func(ctx context.Context, tx db.DBTX) error {
 		var err error
@@ -354,7 +401,11 @@ func (s *Service) switchKey(ctx context.Context, keyID uuid.UUID, from, to const
 		}
 
 		key.Status = to
-		return s.repo.UpdateKeyStatus(ctx, tx, key.ID, to, time.Now().UTC())
+		if err := s.repo.UpdateKeyStatus(ctx, tx, key.ID, to, time.Now().UTC()); err != nil {
+			return err
+		}
+
+		return s.recordKey(ctx, tx, action, key, map[string]any{"from": from.String(), "to": to.String()})
 	})
 	if err != nil {
 		return nil, err
@@ -433,7 +484,7 @@ func (s *Service) GetOrCreateDepositKey(ctx context.Context, params GetDepositKe
 		return nil, err
 	}
 
-	key, err = s.addKey(ctx, role.ID, params.Alias, &externalRef, generateKey)
+	key, err = s.addKey(ctx, "", role.ID, params.Alias, &externalRef, generateKey)
 	if errors.Is(err, ErrKeyExists) {
 		// concurrent
 		key, err = s.repo.GetKeyByExternalRef(ctx, s.txm.GetPool(), role.ID, externalRef)

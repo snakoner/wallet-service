@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/hex"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -16,6 +17,7 @@ import (
 
 	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/config"
 	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/constants"
+	adminaudit "gitlab.tve-development.com/backend/gtoken/wallet-service/internal/features/admin_audit"
 	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/features/audit"
 	keystorage "gitlab.tve-development.com/backend/gtoken/wallet-service/internal/features/key_storage"
 	serviceclient "gitlab.tve-development.com/backend/gtoken/wallet-service/internal/features/service_client"
@@ -27,6 +29,9 @@ const usage = `wallet-admin - manage services, roles and keys of wallet service
 
 Usage:
   wallet-admin <command> [flags]
+
+Commands that change something are recorded in admin audit on WALLET_ADMIN_ACTOR and fail without it:
+  WALLET_ADMIN_ACTOR=ivanov wallet-admin revoke-key -id <key_id>
 
 Services:
   create-service-client   register service, print its X-Service-Key once
@@ -123,6 +128,18 @@ Audit:
       -limit <n>              default 100, 1..1000
       -raw-data               also print unsigned tx as received, hex
 
+  list-admin-audit        who changed roles, policies, keys and service keys, newest first
+      -actor <name>           WALLET_ADMIN_ACTOR of wallet-admin, X-Admin-Actor of admin API
+      -action <action>        e.g. key.revoke, role.policy_update
+      -service <name>         service of changed object
+      -role <role_id>
+      -key-id <key_id>        also rotation records where key is replacement or replaced key
+      -service-client <id>    also rotation records where it is old key
+      -from <time>            RFC3339, inclusive
+      -to <time>              RFC3339, exclusive
+      -offset <n>             records to skip, default 0
+      -limit <n>              default 100, 1..1000
+
 Examples:
   wallet-admin create-service-client -service exchange
   wallet-admin rotate-service-client -service exchange -grace 24h
@@ -134,6 +151,7 @@ Examples:
   wallet-admin list-keys -address 0xabc...
   wallet-admin get-key -id <key_id>
   wallet-admin list-audit -service exchange -failed true -from 2026-10-27T00:00:00Z
+  wallet-admin list-admin-audit -key-id <key_id>
   wallet-admin import-key -role <role_id>    then paste key and press Enter
   wallet-admin rotate-key -id <key_id>       then fund replacement and activate-key -id <new_key_id>
 `
@@ -171,6 +189,8 @@ func main() {
 		getKey(os.Args[2:])
 	case "list-audit":
 		listAudit(os.Args[2:])
+	case "list-admin-audit":
+		listAdminAudit(os.Args[2:])
 	case "release-lease":
 		releaseLease(os.Args[2:])
 	case "rewrap-keys":
@@ -188,14 +208,17 @@ func main() {
 }
 
 type admin struct {
-	cfg  *config.Config
-	log  *logger.Logger
-	pool *pgxpool.Pool
-	txm  db.TxManager
+	cfg   *config.Config
+	log   *logger.Logger
+	pool  *pgxpool.Pool
+	txm   db.TxManager
+	audit *adminaudit.Service
 }
 
-func newAdmin(ctx context.Context) *admin {
+// newAdmin returns ctx of WALLET_ADMIN_ACTOR: changes are recorded on them, without it commands that change something fail.
+func newAdmin() (*admin, context.Context) {
 	cfg := config.MustLoad()
+	ctx := adminaudit.WithActor(context.Background(), os.Getenv("WALLET_ADMIN_ACTOR"), adminaudit.SourceCLI)
 	log := logger.New(logger.Config{
 		Level:       cfg.Log.Level,
 		ServiceName: "wallet-service-admin",
@@ -208,7 +231,8 @@ func newAdmin(ctx context.Context) *admin {
 		log.Fatal().Err(err).Msg("failed to connect to postgres")
 	}
 
-	return &admin{cfg: cfg, log: log, pool: pool, txm: db.NewPgxTxManager(pool)}
+	txm := db.NewPgxTxManager(pool)
+	return &admin{cfg: cfg, log: log, pool: pool, txm: txm, audit: adminaudit.NewService(adminaudit.NewRepository(), txm)}, ctx
 }
 
 func (a *admin) keyStorage() *keystorage.Service {
@@ -217,7 +241,7 @@ func (a *admin) keyStorage() *keystorage.Service {
 		a.log.Fatal().Err(err).Msg("invalid KEK config")
 	}
 
-	return keystorage.NewService(a.log, keystorage.NewRepository(), a.txm, keystorage.NewKEKs(keks), a.cfg.KeyStorage.KEKVersion)
+	return keystorage.NewService(a.log, keystorage.NewRepository(), a.txm, keystorage.NewKEKs(keks), a.cfg.KeyStorage.KEKVersion, a.audit)
 }
 
 func createServiceClient(args []string) {
@@ -225,11 +249,10 @@ func createServiceClient(args []string) {
 	service := fs.String("service", "", "service name, e.g. exchange")
 	_ = fs.Parse(args)
 
-	ctx := context.Background()
-	a := newAdmin(ctx)
+	a, ctx := newAdmin()
 	defer a.pool.Close()
 
-	srv := serviceclient.NewService(a.log, serviceclient.NewRepository(), a.txm)
+	srv := serviceclient.NewService(a.log, serviceclient.NewRepository(), a.txm, a.audit)
 
 	key, client, err := srv.CreateClient(ctx, *service)
 	if err != nil {
@@ -248,11 +271,10 @@ func rotateServiceClient(args []string) {
 	grace := fs.Duration("grace", 24*time.Hour, "how long old key is accepted")
 	_ = fs.Parse(args)
 
-	ctx := context.Background()
-	a := newAdmin(ctx)
+	a, ctx := newAdmin()
 	defer a.pool.Close()
 
-	srv := serviceclient.NewService(a.log, serviceclient.NewRepository(), a.txm)
+	srv := serviceclient.NewService(a.log, serviceclient.NewRepository(), a.txm, a.audit)
 
 	key, client, old, err := srv.RotateClient(ctx, *service, *grace)
 	if err != nil {
@@ -271,8 +293,7 @@ func revokeServiceClient(args []string) {
 	id := fs.String("id", "", "service client id")
 	_ = fs.Parse(args)
 
-	ctx := context.Background()
-	a := newAdmin(ctx)
+	a, ctx := newAdmin()
 	defer a.pool.Close()
 
 	clientID, err := uuid.Parse(*id)
@@ -280,7 +301,7 @@ func revokeServiceClient(args []string) {
 		a.log.Fatal().Str("id", *id).Msg("invalid service client id")
 	}
 
-	srv := serviceclient.NewService(a.log, serviceclient.NewRepository(), a.txm)
+	srv := serviceclient.NewService(a.log, serviceclient.NewRepository(), a.txm, a.audit)
 	if err := srv.RevokeClient(ctx, clientID); err != nil {
 		a.log.Fatal().Err(err).Msg("failed to revoke service client")
 	}
@@ -293,11 +314,10 @@ func listServiceClients(args []string) {
 	service := fs.String("service", "", "service name, all services when empty")
 	_ = fs.Parse(args)
 
-	ctx := context.Background()
-	a := newAdmin(ctx)
+	a, ctx := newAdmin()
 	defer a.pool.Close()
 
-	srv := serviceclient.NewService(a.log, serviceclient.NewRepository(), a.txm)
+	srv := serviceclient.NewService(a.log, serviceclient.NewRepository(), a.txm, a.audit)
 	clients, err := srv.ListClients(ctx, *service)
 	if err != nil {
 		a.log.Fatal().Err(err).Msg("failed to list service clients")
@@ -330,8 +350,7 @@ func createRole(args []string) {
 	policyFile := fs.String("policy", "", "path to signing policy json")
 	_ = fs.Parse(args)
 
-	ctx := context.Background()
-	a := newAdmin(ctx)
+	a, ctx := newAdmin()
 	defer a.pool.Close()
 
 	network, ok := constants.ParseNetwork(*networkName)
@@ -373,8 +392,7 @@ func listRoles(args []string) {
 	service := fs.String("service", "", "service name, all services when empty")
 	_ = fs.Parse(args)
 
-	ctx := context.Background()
-	a := newAdmin(ctx)
+	a, ctx := newAdmin()
 	defer a.pool.Close()
 
 	roles, err := a.keyStorage().ListRoles(ctx, *service)
@@ -395,8 +413,7 @@ func getRole(args []string) {
 	id := fs.String("id", "", "role id")
 	_ = fs.Parse(args)
 
-	ctx := context.Background()
-	a := newAdmin(ctx)
+	a, ctx := newAdmin()
 	defer a.pool.Close()
 
 	roleID, err := uuid.Parse(*id)
@@ -426,8 +443,7 @@ func setPolicy(args []string) {
 	policyFile := fs.String("policy", "", "path to signing policy json")
 	_ = fs.Parse(args)
 
-	ctx := context.Background()
-	a := newAdmin(ctx)
+	a, ctx := newAdmin()
 	defer a.pool.Close()
 
 	id, err := uuid.Parse(*roleID)
@@ -463,8 +479,7 @@ func listKeys(args []string) {
 	limit := fs.Int("limit", 100, "max keys, 1..1000")
 	_ = fs.Parse(args)
 
-	ctx := context.Background()
-	a := newAdmin(ctx)
+	a, ctx := newAdmin()
 	defer a.pool.Close()
 
 	a.checkPage(*offset, *limit)
@@ -516,8 +531,7 @@ func listRoleKeys(args []string) {
 	limit := fs.Int("limit", 100, "max keys, 1..1000")
 	_ = fs.Parse(args)
 
-	ctx := context.Background()
-	a := newAdmin(ctx)
+	a, ctx := newAdmin()
 	defer a.pool.Close()
 
 	id, err := uuid.Parse(*roleID)
@@ -577,8 +591,7 @@ func getKey(args []string) {
 	id := fs.String("id", "", "key id")
 	_ = fs.Parse(args)
 
-	ctx := context.Background()
-	a := newAdmin(ctx)
+	a, ctx := newAdmin()
 	defer a.pool.Close()
 
 	keyID, err := uuid.Parse(*id)
@@ -634,8 +647,7 @@ func listAudit(args []string) {
 	rawData := fs.Bool("raw-data", false, "also print unsigned tx as received, hex")
 	_ = fs.Parse(args)
 
-	ctx := context.Background()
-	a := newAdmin(ctx)
+	a, ctx := newAdmin()
 	defer a.pool.Close()
 
 	a.checkPage(*offset, *limit)
@@ -682,6 +694,68 @@ func listAudit(args []string) {
 	printTotal(len(records), *offset, total)
 }
 
+func listAdminAudit(args []string) {
+	fs := flag.NewFlagSet("list-admin-audit", flag.ExitOnError)
+	actor := fs.String("actor", "", "admin")
+	action := fs.String("action", "", "e.g. key.revoke")
+	service := fs.String("service", "", "service of changed object")
+	roleID := fs.String("role", "", "role id")
+	keyID := fs.String("key-id", "", "key id")
+	serviceClientID := fs.String("service-client", "", "service client id")
+	from := fs.String("from", "", "RFC3339, inclusive")
+	to := fs.String("to", "", "RFC3339, exclusive")
+	offset := fs.Int("offset", 0, "records to skip")
+	limit := fs.Int("limit", 100, "max records, 1..1000")
+	_ = fs.Parse(args)
+
+	a, ctx := newAdmin()
+	defer a.pool.Close()
+
+	a.checkPage(*offset, *limit)
+
+	records, total, err := a.audit.List(ctx, adminaudit.ListFilter{
+		Actor:           *actor,
+		Action:          *action,
+		Service:         *service,
+		RoleID:          a.parseID("role", *roleID),
+		KeyID:           a.parseID("key-id", *keyID),
+		ServiceClientID: a.parseID("service-client", *serviceClientID),
+		From:            a.parseTime("from", *from),
+		To:              a.parseTime("to", *to),
+		Offset:          *offset,
+		Limit:           *limit,
+	})
+	if err != nil {
+		a.log.Fatal().Err(err).Msg("failed to list admin audit")
+	}
+
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(w, "CREATED_AT\tACTOR\tSOURCE\tACTION\tSERVICE\tROLE_ID\tKEY_ID\tSERVICE_CLIENT_ID\tDETAILS")
+	for _, record := range records {
+		details, _ := json.Marshal(record.Details)
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			record.CreatedAt.Format(time.DateTime), record.Actor, record.Source, record.Action, record.Service,
+			derefUUID(record.RoleID), derefUUID(record.KeyID), derefUUID(record.ServiceClientID), details)
+	}
+	_ = w.Flush()
+
+	printTotal(len(records), *offset, total)
+}
+
+// parseID returns uuid.Nil for empty value: filter is not applied.
+func (a *admin) parseID(name, value string) uuid.UUID {
+	if value == "" {
+		return uuid.Nil
+	}
+
+	id, err := uuid.Parse(value)
+	if err != nil {
+		a.log.Fatal().Str(name, value).Msg("invalid " + name)
+	}
+
+	return id
+}
+
 func (a *admin) checkPage(offset, limit int) {
 	if offset < 0 {
 		a.log.Fatal().Int("offset", offset).Msg("offset must not be negative")
@@ -725,8 +799,7 @@ func releaseLease(args []string) {
 	id := fs.String("id", "", "key id")
 	_ = fs.Parse(args)
 
-	ctx := context.Background()
-	a := newAdmin(ctx)
+	a, ctx := newAdmin()
 	defer a.pool.Close()
 
 	keyID, err := uuid.Parse(*id)
@@ -745,8 +818,7 @@ func rewrapKeys(args []string) {
 	fs := flag.NewFlagSet("rewrap-keys", flag.ExitOnError)
 	_ = fs.Parse(args)
 
-	ctx := context.Background()
-	a := newAdmin(ctx)
+	a, ctx := newAdmin()
 	defer a.pool.Close()
 
 	rewrapped, left, err := a.keyStorage().RewrapKeys(ctx)
@@ -767,8 +839,7 @@ func keyAction(command string, args []string) {
 	id := fs.String("id", "", "key id")
 	_ = fs.Parse(args)
 
-	ctx := context.Background()
-	a := newAdmin(ctx)
+	a, ctx := newAdmin()
 	defer a.pool.Close()
 
 	keyID, err := uuid.Parse(*id)
@@ -805,8 +876,7 @@ func createKey(args []string, imported bool) {
 	externalRef := fs.String("external-ref", "", "order id, only for deposit role")
 	_ = fs.Parse(args)
 
-	ctx := context.Background()
-	a := newAdmin(ctx)
+	a, ctx := newAdmin()
 	defer a.pool.Close()
 
 	id, err := uuid.Parse(*roleID)

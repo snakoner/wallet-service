@@ -10,6 +10,8 @@ import (
 	"github.com/google/uuid"
 
 	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/constants"
+	adminaudit "gitlab.tve-development.com/backend/gtoken/wallet-service/internal/features/admin_audit"
+	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/infra/db"
 	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/policy"
 )
 
@@ -47,7 +49,20 @@ func (s *Service) CreateRole(ctx context.Context, params CreateRoleParams) (*Rol
 		CreatedAt: time.Now().UTC(),
 	}
 
-	if err := s.repo.CreateRole(ctx, s.txm.GetPool(), role); err != nil {
+	err = s.txm.WithTx(ctx, func(ctx context.Context, tx db.DBTX) error {
+		if err := s.repo.CreateRole(ctx, tx, role); err != nil {
+			return err
+		}
+
+		return s.recordRole(ctx, tx, adminaudit.ActionRoleCreate, role, map[string]any{
+			"purpose": role.Purpose,
+			"label":   role.Label,
+			"network": role.Network.String(),
+			"kind":    role.Kind.String(),
+			"policy":  role.Policy,
+		})
+	})
+	if err != nil {
 		return nil, err
 	}
 
@@ -82,18 +97,27 @@ func (s *Service) GetRole(ctx context.Context, roleID uuid.UUID) (*Role, map[con
 }
 
 func (s *Service) UpdatePolicy(ctx context.Context, roleID uuid.UUID, raw json.RawMessage) (*Role, error) {
-	role, err := s.repo.GetRoleByID(ctx, s.txm.GetPool(), roleID)
-	if err != nil {
-		return nil, err
-	}
+	var role *Role
+	err := s.txm.WithTx(ctx, func(ctx context.Context, tx db.DBTX) error {
+		var err error
+		if role, err = s.repo.GetRoleForUpdate(ctx, tx, roleID); err != nil {
+			return err
+		}
 
-	rolePolicy, err := policy.Parse(raw, role.Network)
-	if err != nil {
-		return nil, ErrInvalidParams.WithMessage("invalid policy: " + err.Error())
-	}
+		rolePolicy, err := policy.Parse(raw, role.Network)
+		if err != nil {
+			return ErrInvalidParams.WithMessage("invalid policy: " + err.Error())
+		}
 
-	role.Policy = rolePolicy.JSON()
-	if err := s.repo.UpdateRolePolicy(ctx, s.txm.GetPool(), role.ID, role.Policy); err != nil {
+		old := role.Policy
+		role.Policy = rolePolicy.JSON()
+		if err := s.repo.UpdateRolePolicy(ctx, tx, role.ID, role.Policy); err != nil {
+			return err
+		}
+
+		return s.recordRole(ctx, tx, adminaudit.ActionRolePolicyUpdate, role, map[string]any{"old": old, "new": role.Policy})
+	})
+	if err != nil {
 		return nil, err
 	}
 

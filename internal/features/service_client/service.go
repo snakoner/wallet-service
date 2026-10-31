@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 
+	adminaudit "gitlab.tve-development.com/backend/gtoken/wallet-service/internal/features/admin_audit"
 	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/infra/db"
 	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/infra/logger"
 )
@@ -23,18 +24,27 @@ type repository interface {
 	GetPrimaryForUpdate(ctx context.Context, tx db.DBTX, service string) (*ServiceClient, error)
 	ExpireClient(ctx context.Context, tx db.DBTX, id uuid.UUID, expiresAt time.Time) error
 	SetReplacedBy(ctx context.Context, tx db.DBTX, id, replacedBy uuid.UUID) error
-	RevokeClient(ctx context.Context, tx db.DBTX, id uuid.UUID, revokedAt time.Time) error
+	RevokeClient(ctx context.Context, tx db.DBTX, id uuid.UUID, revokedAt time.Time) (string, error)
 	ListClients(ctx context.Context, tx db.DBTX, service string) ([]ServiceClient, error)
 }
 
-type Service struct {
-	log  *logger.Logger
-	repo repository
-	txm  db.TxManager
+type adminAudit interface {
+	Record(ctx context.Context, tx db.DBTX, record *adminaudit.Record) error
 }
 
-func NewService(log *logger.Logger, repo repository, txm db.TxManager) *Service {
-	return &Service{log: log, repo: repo, txm: txm}
+type Service struct {
+	log   *logger.Logger
+	repo  repository
+	txm   db.TxManager
+	audit adminAudit
+}
+
+func NewService(log *logger.Logger, repo repository, txm db.TxManager, audit adminAudit) *Service {
+	return &Service{log: log, repo: repo, txm: txm, audit: audit}
+}
+
+func (s *Service) record(ctx context.Context, tx db.DBTX, action, service string, id uuid.UUID, details map[string]any) error {
+	return s.audit.Record(ctx, tx, &adminaudit.Record{Action: action, Service: service, ServiceClientID: &id, Details: details})
 }
 
 func (s *Service) CreateClient(ctx context.Context, service string) (string, *ServiceClient, error) {
@@ -48,7 +58,14 @@ func (s *Service) CreateClient(ctx context.Context, service string) (string, *Se
 		return "", nil, err
 	}
 
-	if err := s.repo.CreateClient(ctx, s.txm.GetPool(), client); err != nil {
+	err = s.txm.WithTx(ctx, func(ctx context.Context, tx db.DBTX) error {
+		if err := s.repo.CreateClient(ctx, tx, client); err != nil {
+			return err
+		}
+
+		return s.record(ctx, tx, adminaudit.ActionServiceClientCreate, service, client.ID, nil)
+	})
+	if err != nil {
 		return "", nil, err
 	}
 
@@ -93,7 +110,15 @@ func (s *Service) RotateClient(ctx context.Context, service string, grace time.D
 		}
 
 		old.ReplacedBy = &client.ID
-		return s.repo.SetReplacedBy(ctx, tx, old.ID, client.ID)
+		if err := s.repo.SetReplacedBy(ctx, tx, old.ID, client.ID); err != nil {
+			return err
+		}
+
+		return s.record(ctx, tx, adminaudit.ActionServiceClientRotate, service, client.ID, map[string]any{
+			"old_service_client_id": old.ID,
+			"old_expires_at":        expiresAt,
+			"grace":                 grace.String(),
+		})
 	})
 	if err != nil {
 		return "", nil, nil, err
@@ -110,7 +135,15 @@ func (s *Service) RotateClient(ctx context.Context, service string, grace time.D
 }
 
 func (s *Service) RevokeClient(ctx context.Context, id uuid.UUID) error {
-	if err := s.repo.RevokeClient(ctx, s.txm.GetPool(), id, time.Now().UTC()); err != nil {
+	err := s.txm.WithTx(ctx, func(ctx context.Context, tx db.DBTX) error {
+		service, err := s.repo.RevokeClient(ctx, tx, id, time.Now().UTC())
+		if err != nil {
+			return err
+		}
+
+		return s.record(ctx, tx, adminaudit.ActionServiceClientRevoke, service, id, nil)
+	})
+	if err != nil {
 		return err
 	}
 

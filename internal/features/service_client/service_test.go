@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
+	adminaudit "gitlab.tve-development.com/backend/gtoken/wallet-service/internal/features/admin_audit"
 	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/infra/db"
 	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/infra/logger"
 )
@@ -64,13 +65,13 @@ func (r *repoStub) SetReplacedBy(_ context.Context, _ db.DBTX, id, replacedBy uu
 	return nil
 }
 
-func (r *repoStub) RevokeClient(_ context.Context, _ db.DBTX, id uuid.UUID, revokedAt time.Time) error {
+func (r *repoStub) RevokeClient(_ context.Context, _ db.DBTX, id uuid.UUID, revokedAt time.Time) (string, error) {
 	c := r.find(id)
 	if c == nil || !c.IsActive {
-		return ErrServiceClientNotFound
+		return "", ErrServiceClientNotFound
 	}
 	c.IsActive, c.RevokedAt = false, &revokedAt
-	return nil
+	return c.Service, nil
 }
 
 func (r *repoStub) ListClients(_ context.Context, _ db.DBTX, service string) ([]ServiceClient, error) {
@@ -91,8 +92,21 @@ func (txmStub) WithTx(ctx context.Context, fn func(ctx context.Context, tx db.DB
 
 func (txmStub) GetPool() db.DBTX { return nil }
 
+type adminAuditStub struct {
+	records []adminaudit.Record
+	err     error
+}
+
+func (a *adminAuditStub) Record(_ context.Context, _ db.DBTX, record *adminaudit.Record) error {
+	if a.err != nil {
+		return a.err
+	}
+	a.records = append(a.records, *record)
+	return nil
+}
+
 func newTestService(repo repository) *Service {
-	return NewService(logger.New(logger.Config{Level: "error"}), repo, txmStub{})
+	return NewService(logger.New(logger.Config{Level: "error"}), repo, txmStub{}, &adminAuditStub{})
 }
 
 func TestCreateClientAndAuthenticate(t *testing.T) {
@@ -230,5 +244,58 @@ func TestRevokeAndListClients(t *testing.T) {
 	}
 	if clients, _ := srv.ListClients(ctx, ""); len(clients) != 3 {
 		t.Fatalf("all clients = %d", len(clients))
+	}
+}
+
+func TestAdminAuditOfClients(t *testing.T) {
+	audit := &adminAuditStub{}
+	srv := NewService(logger.New(logger.Config{Level: "error"}), &repoStub{}, txmStub{}, audit)
+	ctx := context.Background()
+
+	key, client, err := srv.CreateClient(ctx, "exchange")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, rotated, old, err := srv.RotateClient(ctx, "exchange", time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := srv.RevokeClient(ctx, old.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	want := []struct {
+		action string
+		id     uuid.UUID
+	}{
+		{adminaudit.ActionServiceClientCreate, client.ID},
+		{adminaudit.ActionServiceClientRotate, rotated.ID},
+		{adminaudit.ActionServiceClientRevoke, old.ID},
+	}
+	if len(audit.records) != len(want) {
+		t.Fatalf("records = %+v", audit.records)
+	}
+	for i, w := range want {
+		r := audit.records[i]
+		if r.Action != w.action || r.Service != "exchange" || r.ServiceClientID == nil || *r.ServiceClientID != w.id || r.KeyID != nil || r.RoleID != nil {
+			t.Fatalf("record %d = %+v, want %s of %s", i, r, w.action, w.id)
+		}
+	}
+	if rotate := audit.records[1].Details; rotate["old_service_client_id"] != client.ID || rotate["grace"] != "1h0m0s" || rotate["old_expires_at"] == nil {
+		t.Fatalf("rotate details = %+v", rotate)
+	}
+
+	// service key and its hash never get into audit
+	for _, r := range audit.records {
+		for _, value := range r.Details {
+			if s, ok := value.(string); ok && (s == key || bytes.Contains([]byte(s), client.KeyHash)) {
+				t.Fatalf("secret in details: %+v", r.Details)
+			}
+		}
+	}
+
+	audit.err = errors.New("audit is down")
+	if _, _, err := srv.CreateClient(ctx, "banknote"); !errors.Is(err, audit.err) {
+		t.Fatalf("create with failed audit: err = %v", err)
 	}
 }

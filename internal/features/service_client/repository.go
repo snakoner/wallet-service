@@ -121,23 +121,26 @@ func (r *Repository) SetReplacedBy(ctx context.Context, tx db.DBTX, id, replaced
 	return nil
 }
 
-func (r *Repository) RevokeClient(ctx context.Context, tx db.DBTX, id uuid.UUID, revokedAt time.Time) error {
-	tag, err := tx.Exec(ctx, `
+// RevokeClient returns service of revoked key.
+func (r *Repository) RevokeClient(ctx context.Context, tx db.DBTX, id uuid.UUID, revokedAt time.Time) (string, error) {
+	var service string
+	err := tx.QueryRow(ctx, `
 		UPDATE service_clients
 		SET is_active = FALSE, revoked_at = $2
-		WHERE id = $1 AND is_active`,
+		WHERE id = $1 AND is_active
+		RETURNING service`,
 		id,
 		revokedAt,
-	)
+	).Scan(&service)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ErrServiceClientNotFound
+	}
+
 	if err != nil {
-		return fmt.Errorf("revoke service client: %w", err)
+		return "", fmt.Errorf("revoke service client: %w", err)
 	}
 
-	if tag.RowsAffected() == 0 {
-		return ErrServiceClientNotFound
-	}
-
-	return nil
+	return service, nil
 }
 
 func (r *Repository) ListClients(ctx context.Context, tx db.DBTX, service string) ([]ServiceClient, error) {

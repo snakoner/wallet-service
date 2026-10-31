@@ -41,7 +41,7 @@ func newIntegrationService(t *testing.T) (*Service, *pgxpool.Pool) {
 		t.Fatal(err)
 	}
 
-	srv := NewService(logger.New(logger.Config{Level: "error"}), NewRepository(), db.NewPgxTxManager(pool), NewKEKs(map[int32][]byte{1: kek}), 1)
+	srv := NewService(logger.New(logger.Config{Level: "error"}), NewRepository(), db.NewPgxTxManager(pool), NewKEKs(map[int32][]byte{1: kek}), 1, &adminAuditStub{})
 	return srv, pool
 }
 

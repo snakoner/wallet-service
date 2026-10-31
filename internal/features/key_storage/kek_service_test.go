@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/constants"
+	adminaudit "gitlab.tve-development.com/backend/gtoken/wallet-service/internal/features/admin_audit"
 	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/infra/logger"
 )
 
@@ -19,13 +20,13 @@ func randomKEK(t *testing.T) []byte {
 }
 
 func TestRewrapKeys(t *testing.T) {
-	ctx := context.Background()
+	ctx := adminaudit.WithActor(context.Background(), "test", adminaudit.SourceCLI)
 	log := logger.New(logger.Config{Level: "error"})
 	repo := &repoStub{}
 	oldKEK, newKEK := randomKEK(t), randomKEK(t)
 
 	// more keys than one batch
-	old := NewService(log, repo, txmStub{}, NewKEKs(map[int32][]byte{1: oldKEK}), 1)
+	old := NewService(log, repo, txmStub{}, NewKEKs(map[int32][]byte{1: oldKEK}), 1, &adminAuditStub{})
 	role := createTestRole(t, old, constants.NetworkEthereum, constants.RoleKindPool)
 	for range rewrapBatch + 5 {
 		if _, err := old.CreateKey(ctx, CreateKeyParams{RoleID: role.ID}); err != nil {
@@ -34,13 +35,13 @@ func TestRewrapKeys(t *testing.T) {
 	}
 
 	// new key before rewrap gets current version
-	srv := NewService(log, repo, txmStub{}, NewKEKs(map[int32][]byte{1: oldKEK, 2: newKEK}), 2)
+	srv := NewService(log, repo, txmStub{}, NewKEKs(map[int32][]byte{1: oldKEK, 2: newKEK}), 2, &adminAuditStub{})
 	if key, err := srv.CreateKey(ctx, CreateKeyParams{RoleID: role.ID}); err != nil || key.KEKVersion != 2 {
 		t.Fatalf("new key = %+v, err = %v", key, err)
 	}
 
 	// without old KEK rewrap stops on first old key
-	onlyNew := NewService(log, repo, txmStub{}, NewKEKs(map[int32][]byte{2: newKEK}), 2)
+	onlyNew := NewService(log, repo, txmStub{}, NewKEKs(map[int32][]byte{2: newKEK}), 2, &adminAuditStub{})
 	if rewrapped, _, err := onlyNew.RewrapKeys(ctx); err == nil || rewrapped != 0 {
 		t.Fatalf("rewrap without old kek: rewrapped = %d, err = %v", rewrapped, err)
 	}

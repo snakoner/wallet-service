@@ -15,6 +15,7 @@ import (
 	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/app/middleware"
 	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/config"
 	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/constants"
+	adminaudit "gitlab.tve-development.com/backend/gtoken/wallet-service/internal/features/admin_audit"
 	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/features/audit"
 	keystorage "gitlab.tve-development.com/backend/gtoken/wallet-service/internal/features/key_storage"
 	serviceclient "gitlab.tve-development.com/backend/gtoken/wallet-service/internal/features/service_client"
@@ -70,12 +71,15 @@ func main() {
 		log.Fatal().Err(err).Msg("invalid KEK config")
 	}
 
+	adminAuditService := adminaudit.NewService(adminaudit.NewRepository(), txm)
+
 	keyStorageService := keystorage.NewService(
 		log,
 		keystorage.NewRepository(),
 		txm,
 		keystorage.NewKEKs(keks),
 		cfg.KeyStorage.KEKVersion,
+		adminAuditService,
 	)
 
 	auditService := audit.NewService(audit.NewRepository(), txm)
@@ -91,13 +95,14 @@ func main() {
 		},
 	)
 
-	serviceClientService := serviceclient.NewService(log, serviceclient.NewRepository(), txm)
+	serviceClientService := serviceclient.NewService(log, serviceclient.NewRepository(), txm, adminAuditService)
 
 	handlers := &app.Handlers{
 		KeyStorage:   keystorage.NewHandler(keyStorageService, log),
 		Admin:        keystorage.NewAdminHandler(keyStorageService, log),
 		ClientsAdmin: serviceclient.NewAdminHandler(serviceClientService, log),
 		AuditAdmin:   audit.NewAdminHandler(auditService, log),
+		ActionsAdmin: adminaudit.NewAdminHandler(adminAuditService, log),
 		Signing:      signing.NewHandler(signingService, log),
 	}
 

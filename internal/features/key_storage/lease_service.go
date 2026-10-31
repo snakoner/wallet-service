@@ -7,6 +7,8 @@ import (
 
 	"github.com/google/uuid"
 	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/constants"
+	adminaudit "gitlab.tve-development.com/backend/gtoken/wallet-service/internal/features/admin_audit"
+	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/infra/db"
 )
 
 const (
@@ -57,7 +59,34 @@ func (s *Service) ReleaseLease(ctx context.Context, service string, leaseID uuid
 }
 
 func (s *Service) ForceReleaseLease(ctx context.Context, keyID uuid.UUID) error {
-	if err := s.repo.ForceReleaseLease(ctx, s.txm.GetPool(), keyID); err != nil {
+	err := s.txm.WithTx(ctx, func(ctx context.Context, tx db.DBTX) error {
+		keys, err := s.repo.ListKeys(ctx, tx, ListKeysFilter{ID: &keyID, Limit: 1})
+		if err != nil {
+			return err
+		}
+
+		if len(keys) == 0 {
+			return ErrKeyNotFound
+		}
+
+		if err := s.repo.ForceReleaseLease(ctx, tx, keyID); err != nil {
+			return err
+		}
+
+		key := &keys[0]
+		return s.recordKey(
+			ctx,
+			tx,
+			adminaudit.ActionKeyReleaseLease,
+			key,
+			map[string]any{
+				"lease_id":     key.LeaseID,
+				"lease_owner":  key.LeaseOwner,
+				"leased_until": key.LeasedUntil,
+				"lease_active": key.LeaseActive,
+			})
+	})
+	if err != nil {
 		return err
 	}
 

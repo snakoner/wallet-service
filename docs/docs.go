@@ -109,6 +109,106 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/admin/audit/actions": {
+            "get": {
+                "description": "Newest first, empty parameters are not applied. key_id also matches rotation records where key is replacement or replaced key.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Admin audit: who changed roles, policies, keys and service keys",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Admin",
+                        "name": "actor",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Action, e.g. key.revoke, role.policy_update",
+                        "name": "action",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Service of changed object",
+                        "name": "service",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Role id",
+                        "name": "role_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Key id",
+                        "name": "key_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Service client id",
+                        "name": "service_client_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Created at or after, RFC3339",
+                        "name": "from",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Created before, RFC3339",
+                        "name": "to",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Records to skip, default 0",
+                        "name": "offset",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Max records, default 100, max 1000",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/httputil.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/admin_audit.PageResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httputil.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/admin/keys": {
             "get": {
                 "description": "Newest first, every filter applies only if parameter is present, so ?label= selects keys with empty label.",
@@ -1676,6 +1776,55 @@ const docTemplate = `{
         }
     },
     "definitions": {
+        "admin_audit.PageResponse": {
+            "type": "object",
+            "properties": {
+                "records": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/admin_audit.RecordResponse"
+                    }
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "admin_audit.RecordResponse": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string"
+                },
+                "actor": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "details": {
+                    "type": "object"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "key_id": {
+                    "type": "string"
+                },
+                "role_id": {
+                    "type": "string"
+                },
+                "service": {
+                    "type": "string"
+                },
+                "service_client_id": {
+                    "type": "string"
+                },
+                "source": {
+                    "type": "string"
+                }
+            }
+        },
         "audit.SigningPageResponse": {
             "type": "object",
             "properties": {
@@ -2164,7 +2313,6 @@ const docTemplate = `{
                     "$ref": "#/definitions/service_client.ClientResponse"
                 },
                 "service_key": {
-                    "description": "shown once, only hash is stored",
                     "type": "string"
                 }
             }

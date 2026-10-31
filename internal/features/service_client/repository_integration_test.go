@@ -31,7 +31,7 @@ func newIntegrationService(t *testing.T) *Service {
 
 	t.Cleanup(pool.Close)
 
-	return NewService(logger.New(logger.Config{Level: "error"}), NewRepository(), db.NewPgxTxManager(pool))
+	return NewService(logger.New(logger.Config{Level: "error"}), NewRepository(), db.NewPgxTxManager(pool), &adminAuditStub{})
 }
 
 func uniqueService() string {

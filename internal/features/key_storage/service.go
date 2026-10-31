@@ -13,6 +13,7 @@ import (
 	tronlib "github.com/w3-developers/go-tron-lib"
 
 	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/constants"
+	adminaudit "gitlab.tve-development.com/backend/gtoken/wallet-service/internal/features/admin_audit"
 	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/infra/db"
 	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/infra/logger"
 )
@@ -50,6 +51,10 @@ type repository interface {
 	UpdateKeyDEK(ctx context.Context, tx db.DBTX, id uuid.UUID, dekCipher []byte, kekVersion int32) error
 }
 
+type adminAudit interface {
+	Record(ctx context.Context, tx db.DBTX, record *adminaudit.Record) error
+}
+
 type KekCipher interface {
 	Encrypt(data []byte) ([]byte, error)
 	Decrypt(data []byte) ([]byte, error)
@@ -81,6 +86,7 @@ type Service struct {
 	txm        db.TxManager
 	keks       map[int32]KekCipher // current and old versions, new keys use kekVersion
 	kekVersion int32
+	audit      adminAudit
 }
 
 func NewService(
@@ -89,6 +95,7 @@ func NewService(
 	txm db.TxManager,
 	keks map[int32]KekCipher,
 	kekVersion int32,
+	audit adminAudit,
 ) *Service {
 	return &Service{
 		log:        log,
@@ -96,7 +103,16 @@ func NewService(
 		txm:        txm,
 		keks:       keks,
 		kekVersion: kekVersion,
+		audit:      audit,
 	}
+}
+
+func (s *Service) recordRole(ctx context.Context, tx db.DBTX, action string, role *Role, details map[string]any) error {
+	return s.audit.Record(ctx, tx, &adminaudit.Record{Action: action, Service: role.Service, RoleID: &role.ID, Details: details})
+}
+
+func (s *Service) recordKey(ctx context.Context, tx db.DBTX, action string, key *WalletKey, details map[string]any) error {
+	return s.audit.Record(ctx, tx, &adminaudit.Record{Action: action, Service: key.Role.Service, RoleID: &key.RoleID, KeyID: &key.ID, Details: details})
 }
 
 func (s *Service) logKey(key *WalletKey, message string, fields ...string) {

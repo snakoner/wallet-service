@@ -1,4 +1,36 @@
 definitions:
+  admin_audit.PageResponse:
+    properties:
+      records:
+        items:
+          $ref: '#/definitions/admin_audit.RecordResponse'
+        type: array
+      total:
+        type: integer
+    type: object
+  admin_audit.RecordResponse:
+    properties:
+      action:
+        type: string
+      actor:
+        type: string
+      created_at:
+        type: string
+      details:
+        type: object
+      id:
+        type: string
+      key_id:
+        type: string
+      role_id:
+        type: string
+      service:
+        type: string
+      service_client_id:
+        type: string
+      source:
+        type: string
+    type: object
   audit.SigningPageResponse:
     properties:
       records:
@@ -324,7 +356,6 @@ definitions:
       old_client:
         $ref: '#/definitions/service_client.ClientResponse'
       service_key:
-        description: shown once, only hash is stored
         type: string
     type: object
   service_client.RotateClientRequest:
@@ -424,6 +455,70 @@ paths:
           schema:
             $ref: '#/definitions/httputil.ErrorResponse'
       summary: 'Signing audit: every sign-transaction request, signed or denied'
+      tags:
+      - admin
+  /api/v1/admin/audit/actions:
+    get:
+      description: Newest first, empty parameters are not applied. key_id also matches
+        rotation records where key is replacement or replaced key.
+      parameters:
+      - description: Admin
+        in: query
+        name: actor
+        type: string
+      - description: Action, e.g. key.revoke, role.policy_update
+        in: query
+        name: action
+        type: string
+      - description: Service of changed object
+        in: query
+        name: service
+        type: string
+      - description: Role id
+        in: query
+        name: role_id
+        type: string
+      - description: Key id
+        in: query
+        name: key_id
+        type: string
+      - description: Service client id
+        in: query
+        name: service_client_id
+        type: string
+      - description: Created at or after, RFC3339
+        in: query
+        name: from
+        type: string
+      - description: Created before, RFC3339
+        in: query
+        name: to
+        type: string
+      - description: Records to skip, default 0
+        in: query
+        name: offset
+        type: integer
+      - description: Max records, default 100, max 1000
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httputil.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/admin_audit.PageResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httputil.ErrorResponse'
+      summary: 'Admin audit: who changed roles, policies, keys and service keys'
       tags:
       - admin
   /api/v1/admin/keys:

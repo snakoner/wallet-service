@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/constants"
+	adminaudit "gitlab.tve-development.com/backend/gtoken/wallet-service/internal/features/admin_audit"
 	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/infra/db"
 	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/infra/logger"
 )
@@ -315,14 +316,35 @@ func (txmStub) WithTx(ctx context.Context, fn func(ctx context.Context, tx db.DB
 
 func (txmStub) GetPool() db.DBTX { return nil }
 
+// adminAuditStub records without actor check: actor is checked by admin_audit.Service.
+type adminAuditStub struct {
+	records []adminaudit.Record
+	err     error
+}
+
+func (a *adminAuditStub) Record(_ context.Context, _ db.DBTX, record *adminaudit.Record) error {
+	if a.err != nil {
+		return a.err
+	}
+	a.records = append(a.records, *record)
+	return nil
+}
+
 func newTestService(t *testing.T, repo repository) *Service {
+	t.Helper()
+	srv, _ := newAuditedTestService(t, repo)
+	return srv
+}
+
+func newAuditedTestService(t *testing.T, repo repository) (*Service, *adminAuditStub) {
 	t.Helper()
 	kek := make([]byte, 32)
 	if _, err := rand.Read(kek); err != nil {
 		t.Fatal(err)
 	}
 	log := logger.New(logger.Config{Level: "error"})
-	return NewService(log, repo, txmStub{}, NewKEKs(map[int32][]byte{1: kek}), 1)
+	audit := &adminAuditStub{}
+	return NewService(log, repo, txmStub{}, NewKEKs(map[int32][]byte{1: kek}), 1, audit), audit
 }
 
 func createTestRole(t *testing.T, srv *Service, network constants.Network, kind constants.RoleKind) *Role {

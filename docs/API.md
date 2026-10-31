@@ -1,6 +1,6 @@
 # Wallet Service: что уже сделано в API
 
-Обновлено: 28.10.2026. Документ обновляется после каждого изменения ручек.
+Обновлено: 31.10.2026. Документ обновляется после каждого изменения ручек.
 
 ## Общее
 
@@ -213,6 +213,8 @@ signed, err := wallet.SignTransaction(ctx, lease.Key.ID, client.SignRequest{Netw
 
 **Только вне production** (в production маршруты не регистрируются). **Авторизации пока нет** — будет SSO.
 
+Каждое изменение (роли, политики, ключи, ключи сервисов) пишется в журнал действий админа ([`GET /admin/audit/actions`](#get-apiv1adminauditactions--журнал-действий-админа)) от имени из заголовка `X-Admin-Actor`; без заголовка — `unknown`. После SSO имя будет браться из SSO.
+
 Списки с `offset`/`limit` (`/admin/keys`, `/admin/roles/{id}/keys`, `/admin/audit`) отдают объект: страницу и `total` — сколько всего объектов подходит под фильтры без учёта `offset`/`limit`:
 
 ```json
@@ -372,6 +374,55 @@ curl -s "http://localhost:8080/api/v1/admin/audit?service=exchange&failed=true&f
 
 Ошибки: `VALIDATION_FAILED` (400, `key_id` не uuid), `BAD_REQUEST` (400, `from`/`to` не RFC3339, `failed` не bool).
 
+### `GET /api/v1/admin/audit/actions` — журнал действий админа
+
+Записи `admin_audit` от новых к старым: кто и когда менял роли, политики, ключи и ключи сервисов через admin API или `wallet-admin`. Пишутся только успешные изменения, в той же транзакции, что и само изменение: изменения без записи не бывает. Чтение (`GET`, `list-*`, `get-*`) не пишется.
+
+| Параметр | |
+|---|---|
+| `actor` | кто: `WALLET_ADMIN_ACTOR` у CLI, `X-Admin-Actor` у API |
+| `action` | действие, таблица ниже |
+| `service` | сервис изменённой роли, ключа или ключа сервиса |
+| `role_id` | роль: её создание, политика и все действия с её ключами |
+| `key_id` | ключ; также ротация, где он замена или заменяемый ключ |
+| `service_client_id` | ключ сервиса; также ротация, где он старый ключ |
+| `from` / `to` | RFC3339, `from` включительно, `to` не включительно |
+| `offset` / `limit` | как у `/admin/audit` |
+
+| `action` | `role_id` / `key_id` / `service_client_id` | `details` |
+|---|---|---|
+| `role.create` | роль | `purpose`, `label`, `network`, `kind`, `policy` |
+| `role.policy_update` | роль | `old`, `new` — политика целиком |
+| `key.create`, `key.import` | роль, ключ | `address`, `alias`, `external_ref`; приватного ключа нет |
+| `key.rotate` | роль, **старый** ключ | `replacement_key_id`, `replacement_address` |
+| `key.activate` | роль, **новый** ключ | `from`, `to`; если был заменяемый ключ — `replaced_key_id`, `replaced_key_status: rotating` |
+| `key.revoke` | роль, ключ | `from`, `to`; при отзыве pending-замены — `replaced_key_id` (ротация отменена) |
+| `key.disable`, `key.enable` | роль, ключ | `from`, `to` |
+| `key.release_lease` | роль, ключ | `lease_id`, `lease_owner`, `leased_until`, `lease_active` снятой аренды |
+| `service_client.create` | ключ сервиса | — (ни ключа, ни хэша) |
+| `service_client.rotate` | **новый** ключ сервиса | `old_service_client_id`, `old_expires_at`, `grace` |
+| `service_client.revoke` | ключ сервиса | — |
+| `kek.rewrap` | — | `kek_version`, `rewrapped`, `left`, `error` при ошибке; одна запись на запуск после всех пачек |
+
+Deposit-ключи, которые сервис создаёт сам через `deposit-key`, и аренды сервисов — не действия админа и не пишутся.
+
+```bash
+curl -s "http://localhost:8080/api/v1/admin/audit/actions?key_id=<key_id>"
+```
+
+```json
+{"success": true, "data": {"records": [{
+  "id": "…", "created_at": "2026-10-31T08:05:09Z",
+  "actor": "ivanov", "source": "cli", "action": "key.rotate",
+  "service": "exchange", "role_id": "…", "key_id": "…",
+  "details": {"replacement_key_id": "…", "replacement_address": "0x…"}
+}], "total": 3}}
+```
+
+Ошибки: `VALIDATION_FAILED` (400, `role_id`/`key_id`/`service_client_id` не uuid), `BAD_REQUEST` (400, `from`/`to` не RFC3339).
+
+Журнал защищает от «кто из админов что сделал», но не от того, у кого есть доступ к БД: `wallet-admin` ходит прямо в базу. Пользователю БД приложения стоит оставить на `admin_audit` и `signing_audit` только `INSERT` и `SELECT`.
+
 ## Ротация ключей
 
 Новый ключ — новый адрес, поэтому ротация идёт по шагам, без простоя сервисов:
@@ -405,6 +456,12 @@ wallet-admin revoke-key -id <A>
 
 Полная справка: `wallet-admin help`.
 
+Команды, которые что-то меняют, пишутся в журнал действий админа от имени `WALLET_ADMIN_ACTOR` и без неё завершаются ошибкой `admin actor is not set`. Чтение работает без неё.
+
+```bash
+export WALLET_ADMIN_ACTOR=ivanov
+```
+
 ```bash
 wallet-admin create-service-client -service exchange
 wallet-admin rotate-service-client -service exchange [-grace 24h]
@@ -423,6 +480,7 @@ wallet-admin rotate-key | activate-key | revoke-key | disable-key | enable-key -
 wallet-admin release-lease -id <key_id>
 wallet-admin rewrap-keys
 wallet-admin list-audit [-key-id <key_id>] [-service exchange] [-tx-hash 0x…] [-error-code POLICY_VIOLATION] [-failed true] [-from 2026-10-27T00:00:00Z] [-to …] [-offset 0] [-limit 100] [-raw-data]
+wallet-admin list-admin-audit [-actor ivanov] [-action key.revoke] [-service exchange] [-role <role_id>] [-key-id <key_id>] [-service-client <id>] [-from …] [-to …] [-offset 0] [-limit 100]
 ```
 
 Команды повторяют admin API один в один:
@@ -435,6 +493,7 @@ wallet-admin list-audit [-key-id <key_id>] [-service exchange] [-tx-hash 0x…] 
 | `list-keys` / `get-key` | `GET /admin/keys`, `GET /admin/keys/{id}` |
 | `rotate-key` / `activate-key` / `revoke-key` / `disable-key` / `enable-key` / `release-lease` | `POST /admin/keys/{id}/…` |
 | `list-audit` | `GET /admin/audit` |
+| `list-admin-audit` | `GET /admin/audit/actions` |
 
 Списки печатают таблицу и строку `shown 101-200 of 1520` (как `total` в API). В отличие от API, параметры проверяются строго: `-limit` вне 1..1000, отрицательный `-offset`, `-leased`/`-failed` не bool, `-from`/`-to` не RFC3339 — команда завершается с ошибкой.
 
@@ -476,10 +535,11 @@ make test-integration   # интеграционные: поднимает docke
 `docker-compose.test.yml` (отдельный compose-проект `wallet-service-test`, порты 15433 / 18090 / 18545): Postgres, миграции up → down → up (проверка down-миграций), приложение и anvil (локальный Ethereum, chain id 31337). Тесты под тегом `integration`, обычный `go test ./...` их не запускает.
 
 - `internal/features/*/repository_integration_test.go` — SQL против настоящего Postgres: уникальности, гонка 20 `CreateKey` в single-роль, `IsServiceAddress`, фильтры `ListKeys`, ротация и параллельные ротации service key, параллельные активация замещающего ключа и отключение замещаемого без deadlock, параллельные отзыв и активация одного pending-ключа (оба порядка дают согласованный итог), аренда выдаёт только active-ключи (disabled, revoked, pending и rotating пропускаются), `rewrap-keys` пропускает заблокированный ключ и добирает его повторным запуском, после перешифровки ключи расшифровываются одним новым KEK.
+- журнал действий админа (unit): каждое действие ключей, ролей и ключей сервисов пишет свою запись с id и `details`, неудачные действия и deposit-ключи сервиса не пишутся, приватного ключа и ключа сервиса в `details` нет, ошибка записи в журнал — ошибка действия, `rewrap-keys` без автора не начинается; `X-Admin-Actor` → автор, обрезка длинного имени, фильтры ручки.
 - `pkg/client/client_test.go` — запросы клиента (пути, экранирование `purpose` и query, тела, `X-Service-Key`) и разбор ошибок: код, `fields`, `Retry-After`, не-JSON ответ.
 - `internal/config/config_test.go` — разбор `KEY_STORAGE_OLD_KEKS`: несколько версий, ошибки формата, длины и дубли версий.
 - `internal/infra/httputil/pagination_test.go` — `offset`/`limit`: значения по умолчанию, отрицательные, нулевые и нечисловые значения, потолок 1000.
-- `test/integration` — API end-to-end: авторизация, роли, подпись ETH (legacy и EIP-1559) с отправкой в anvil и проверкой receipt, отказы (политика, chain id, статус ключа, чужой сервис), записи `signing_audit` для подписи и отказов и их чтение через `GET /admin/audit` (фильтры, offset/limit), карточки ключа и роли, пагинация ключей роли, фильтры `address` и `leased`, подпись TRON с восстановлением адреса из подписи, deposit-ключи (повтор и гонка по одному `external_ref`, вывод на газовый кошелёк), admin API, аренда (pool, single, последние 10 секунд, TTL), два «пода» параллельно шлют газ с одного single-ключа под арендой (nonce без повторов и пропусков, все tx в блоках, поды реально конкурировали), `pkg/client` против настоящего API: все ручки сервисов и коды ошибок через `errors.Is`.
+- `test/integration` — API end-to-end: авторизация, роли, подпись ETH (legacy и EIP-1559) с отправкой в anvil и проверкой receipt, отказы (политика, chain id, статус ключа, чужой сервис), записи `signing_audit` для подписи и отказов и их чтение через `GET /admin/audit` (фильтры, offset/limit), карточки ключа и роли, пагинация ключей роли, фильтры `address` и `leased`, подпись TRON с восстановлением адреса из подписи, deposit-ключи (повтор и гонка по одному `external_ref`, вывод на газовый кошелёк), admin API, аренда (pool, single, последние 10 секунд, TTL), два «пода» параллельно шлют газ с одного single-ключа под арендой (nonce без повторов и пропусков, все tx в блоках, поды реально конкурировали), `pkg/client` против настоящего API: все ручки сервисов и коды ошибок через `errors.Is`, журнал действий админа (автор из `X-Admin-Actor` и из контекста, история ключа вместе с ротацией, фильтры и пагинация, без автора изменение откатывается вместе с записью).
 
 ## Ещё не сделано
 
@@ -488,5 +548,4 @@ make test-integration   # интеграционные: поднимает docke
 | Лимиты за период и проверка аргументов `contract_call` в политике | после аудита, см. [POLICY.md](POLICY.md) §7 |
 | Перевод atoken-exchange, cedex-retail, banknote на wallet-service | шаг 7 |
 | SSO-авторизация admin API | не начато |
-| Аудит действий админа | не начато, аудит подписей сделан |
 | `SignMessage` | не нужно (подписи банкнот остаются в banknote) |

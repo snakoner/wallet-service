@@ -35,7 +35,7 @@ func NewRouter(
 
 	api := r.Group("/api/v1")
 	{
-		admin := api.Group("/admin")
+		admin := api.Group("/admin", middleware.AdminActor())
 		{
 			admin.POST("/roles", handlers.Admin.CreateRole)
 			admin.GET("/roles", handlers.Admin.ListRoles)
@@ -60,6 +60,7 @@ func NewRouter(
 			admin.POST("/service-clients/:id/revoke", handlers.ClientsAdmin.RevokeClient)
 
 			admin.GET("/audit", handlers.AuditAdmin.ListSigning)
+			admin.GET("/audit/actions", handlers.ActionsAdmin.List)
 		}
 
 		roles := api.Group("/roles", serviceAuth.Handle())

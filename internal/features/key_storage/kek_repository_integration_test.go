@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/constants"
+	adminaudit "gitlab.tve-development.com/backend/gtoken/wallet-service/internal/features/admin_audit"
 	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/infra/db"
 	"gitlab.tve-development.com/backend/gtoken/wallet-service/internal/infra/logger"
 )
@@ -15,12 +16,12 @@ import (
 // from version 7 to version 1: rewrap selects only keys not on current version and does not touch keys of other tests.
 func TestIntegrationRewrapKeys(t *testing.T) {
 	pool := openTestPool(t)
-	ctx := context.Background()
+	ctx := adminaudit.WithActor(context.Background(), "test", adminaudit.SourceCLI)
 	log := logger.New(logger.Config{Level: "error"})
 	txm := db.NewPgxTxManager(pool)
 	oldKEK, newKEK := randomKEK(t), randomKEK(t)
 
-	old := NewService(log, NewRepository(), txm, NewKEKs(map[int32][]byte{7: oldKEK}), 7)
+	old := NewService(log, NewRepository(), txm, NewKEKs(map[int32][]byte{7: oldKEK}), 7, &adminAuditStub{})
 	service := uniqueService()
 	role := createIntegrationRole(t, old, service, "executor", constants.NetworkEthereum, constants.RoleKindPool, "")
 	keys := make([]*WalletKey, 3)
@@ -40,7 +41,7 @@ func TestIntegrationRewrapKeys(t *testing.T) {
 	if _, err := tx.Exec(ctx, `SELECT 1 FROM wallet_keys WHERE id = $1 FOR UPDATE`, keys[0].ID); err != nil {
 		t.Fatal(err)
 	}
-	srv := NewService(log, NewRepository(), txm, NewKEKs(map[int32][]byte{1: newKEK, 7: oldKEK}), 1)
+	srv := NewService(log, NewRepository(), txm, NewKEKs(map[int32][]byte{1: newKEK, 7: oldKEK}), 1, &adminAuditStub{})
 	rewrapped, left, err := srv.RewrapKeys(ctx)
 	if err != nil || rewrapped != 2 || left != 1 {
 		t.Fatalf("with locked key: rewrapped = %d, left = %d, err = %v", rewrapped, left, err)
@@ -54,7 +55,7 @@ func TestIntegrationRewrapKeys(t *testing.T) {
 	}
 
 	// keys decrypt with new KEK alone
-	onlyNew := NewService(log, NewRepository(), txm, NewKEKs(map[int32][]byte{1: newKEK}), 1)
+	onlyNew := NewService(log, NewRepository(), txm, NewKEKs(map[int32][]byte{1: newKEK}), 1, &adminAuditStub{})
 	for _, key := range keys {
 		got, err := onlyNew.repo.GetKey(ctx, pool, key.ID, service)
 		if err != nil || got.KEKVersion != 1 {
