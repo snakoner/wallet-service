@@ -13,9 +13,7 @@ CREATE TABLE admin_audit (
 );
 
 CREATE INDEX idx_admin_audit_created ON admin_audit (created_at);
-
 CREATE INDEX idx_admin_audit_role_created ON admin_audit (role_id, created_at) WHERE role_id IS NOT NULL;
-
 CREATE INDEX idx_admin_audit_key_created ON admin_audit (key_id, created_at) WHERE key_id IS NOT NULL;
 
 -- +goose Down
