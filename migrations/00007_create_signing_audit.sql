@@ -13,7 +13,6 @@ CREATE TABLE signing_audit (
 );
 
 CREATE INDEX idx_signing_audit_key_created ON signing_audit (key_id, created_at);
-
 CREATE INDEX idx_signing_audit_failed ON signing_audit (created_at) WHERE error_code IS NOT NULL;
 
 -- +goose Down

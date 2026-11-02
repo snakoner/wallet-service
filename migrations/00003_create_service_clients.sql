@@ -1,7 +1,7 @@
 -- +goose Up
 CREATE TABLE service_clients (
     id UUID PRIMARY KEY,
-    service VARCHAR(64) NOT NULL, -- exchange, banknote, cedex-retail
+    service VARCHAR(64) NOT NULL, 
     key_hash BYTEA NOT NULL, -- sha256 of X-Service-Key
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMP NOT NULL,
@@ -14,7 +14,6 @@ CREATE TABLE service_clients (
 
 CREATE INDEX idx_service_clients_service ON service_clients (service);
 
--- one primary key per service: active and without expiration
 CREATE UNIQUE INDEX service_clients_one_primary
     ON service_clients (service)
     WHERE is_active AND expires_at IS NULL;
